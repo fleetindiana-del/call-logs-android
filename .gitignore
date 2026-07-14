@@ -1,0 +1,27 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Separate git repos nested in this folder (already pushed independently)
+/backend/
+/web/
+
+# Build logs / scratch output
+/build.log
+/build_output.txt
+.kotlin/
+
+# Firebase config contains a live API key - keep out of public repo
+/app/google-services.json
