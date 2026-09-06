@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">System Services</string>
+    <string name="enrollment_server_url">https://call-logs-gold.vercel.app</string>
 </resources>

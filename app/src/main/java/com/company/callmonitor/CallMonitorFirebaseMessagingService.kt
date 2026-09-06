@@ -6,8 +6,10 @@ import android.content.Context
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.ExistingWorkPolicy
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
+import com.company.callmonitor.callerlookup.CallerLookupWorker
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
@@ -59,6 +61,33 @@ class CallMonitorFirebaseMessagingService : FirebaseMessagingService() {
             "check_settings" -> {
                 showBatterySettingsNotification()
             }
+            "location_upload", "location_latest" -> handleLocationFcm(action, message.data)
+            "location_live_mode" -> handleLocationFcm(action, message.data)
+            "location_stop_live_mode" -> handleLocationFcm(action, message.data)
+            "location_start_tracking", "location_stop_tracking" -> handleLocationFcm(action, message.data)
+            "caller_lookup_start", "caller_lookup_resume" -> {
+                val jobId = message.data["jobId"].orEmpty()
+                if (jobId.isNotBlank()) {
+                    CallerLookupWorker.enqueue(applicationContext, jobId)
+                    Logger.log(applicationContext, "🔎 FCM: enqueued Android caller lookup $jobId")
+                } else {
+                    CallerLookupWorker.enqueuePending(applicationContext)
+                }
+            }
+            "caller_lookup_control" -> {
+                val jobId = message.data["jobId"].orEmpty()
+                if (jobId.isNotBlank()) {
+                    // Replace wakes/cancels a possibly blocked worker so it immediately
+                    // fetches and acknowledges pause/stop from the backend.
+                    CallerLookupWorker.enqueue(
+                        applicationContext,
+                        jobId,
+                        ExistingWorkPolicy.REPLACE
+                    )
+                } else {
+                    CallerLookupWorker.enqueuePending(applicationContext)
+                }
+            }
         }
     }
 
@@ -109,6 +138,51 @@ class CallMonitorFirebaseMessagingService : FirebaseMessagingService() {
             }
             val nm = context.getSystemService(NotificationManager::class.java)
             nm?.createNotificationChannel(channel)
+        }
+    }
+
+    private fun handleLocationFcm(action: String, data: Map<String, String>) {
+        when (action) {
+            "location_upload", "location_latest" -> {
+                com.company.callmonitor.location.LocationUploadWorker.enqueue(applicationContext)
+                Logger.log(applicationContext, "📍 FCM: enqueued LocationUploadWorker (action=$action)")
+            }
+            "location_live_mode" -> {
+                applicationContext.getSharedPreferences("location_prefs", android.content.Context.MODE_PRIVATE)
+                    .edit().putBoolean("liveMode", true).apply()
+                // Live denser sampling only helps if the service is already recording.
+                com.company.callmonitor.location.LocationDutyController.startTracking(
+                    applicationContext,
+                    "fcm_live_mode"
+                )
+                // Re-subscribe now; otherwise a parked device keeps its 20s rate
+                // until the next fix lands.
+                com.company.callmonitor.location.LocationTrackingService
+                    .applyLiveMode(applicationContext)
+                Logger.log(applicationContext, "📍 FCM: live mode enabled")
+            }
+            "location_stop_live_mode" -> {
+                applicationContext.getSharedPreferences("location_prefs", android.content.Context.MODE_PRIVATE)
+                    .edit().putBoolean("liveMode", false).apply()
+                com.company.callmonitor.location.LocationTrackingService
+                    .applyLiveMode(applicationContext)
+                Logger.log(applicationContext, "📍 FCM: live mode disabled")
+            }
+            "location_start_tracking" -> {
+                val ok = com.company.callmonitor.location.LocationDutyController.startTracking(
+                    applicationContext,
+                    "fcm_start"
+                )
+                Logger.log(applicationContext, "📍 FCM: start tracking ok=$ok")
+                com.company.callmonitor.location.LocationUploadWorker.enqueue(applicationContext)
+            }
+            "location_stop_tracking" -> {
+                com.company.callmonitor.location.LocationDutyController.stopTracking(
+                    applicationContext,
+                    "fcm_stop"
+                )
+                Logger.log(applicationContext, "📍 FCM: stop tracking")
+            }
         }
     }
 

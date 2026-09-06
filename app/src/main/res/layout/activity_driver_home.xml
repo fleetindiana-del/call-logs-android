@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F5F5F5"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <!-- Header -->
+        <TextView
+            android:id="@+id/tvDriverName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Hello, Driver"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:textColor="#1A1A1A"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:id="@+id/tvVehicleReg"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Vehicle: —"
+            android:textSize="15sp"
+            android:textColor="#555555"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvTrackingStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Tracking active — controlled from website"
+            android:textSize="14sp"
+            android:textColor="#888888"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:id="@+id/tvPendingPoints"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Pending GPS points: 0"
+            android:textSize="13sp"
+            android:textColor="#777777"
+            android:gravity="center"
+            android:layout_marginBottom="24dp" />
+
+        <!-- Expense Section -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="EXPENSES"
+            android:textSize="11sp"
+            android:textAllCaps="true"
+            android:textColor="#888888"
+            android:letterSpacing="0.1"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/btnAddExpense"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="Add Expense"
+            android:textSize="16sp"
+            android:backgroundTint="#2E7D32"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvExpenseInfo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="View your wallet and expense history in the expense portal"
+            android:textSize="13sp"
+            android:textColor="#777777"
+            android:gravity="center"
+            android:layout_marginBottom="32dp" />
+
+        <!-- Bottom Links -->
+        <TextView
+            android:id="@+id/btnViewRoute"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="View My Live Route"
+            android:textSize="14sp"
+            android:textColor="#1565C0"
+            android:gravity="center"
+            android:padding="12dp"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/btnCallerLookup"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:text="Caller Number Lookup"
+            android:textSize="15sp"
+            android:backgroundTint="#00838F"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:id="@+id/btnLocationStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="GPS Status &amp; Diagnostics"
+            android:textSize="14sp"
+            android:textColor="#1565C0"
+            android:gravity="center"
+            android:padding="12dp"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvAdminAccess"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Admin Access"
+            android:textSize="12sp"
+            android:textColor="#AAAAAA"
+            android:gravity="center"
+            android:padding="8dp" />
+
+    </LinearLayout>
+</ScrollView>

@@ -26,6 +26,20 @@ object MonitoringAlarmScheduler {
         )
     }
 
+    /**
+     * Start the chain only if it is not already armed. Used by GPS duty, which
+     * calls in far more often than call monitoring does and must not keep
+     * pushing the next wake-up out by restarting the chain each time.
+     */
+    fun ensureAlarmChain(context: Context) {
+        val appCtx = context.applicationContext
+        val intent = Intent(appCtx, MonitoringAlarmReceiver::class.java)
+        val flags = PendingIntent.FLAG_NO_CREATE or
+            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+        val existing = PendingIntent.getBroadcast(appCtx, REQUEST_CODE, intent, flags)
+        if (existing == null) startAlarmChain(appCtx)
+    }
+
     fun scheduleNextAlarm(context: Context) {
         val appCtx = context.applicationContext
         scheduleAlarmAt(

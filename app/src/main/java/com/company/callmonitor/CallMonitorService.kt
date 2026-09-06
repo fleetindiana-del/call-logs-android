@@ -87,6 +87,7 @@ class CallMonitorService : Service() {
                 retryPendingCalls()
                 retryPendingStatuses()
                 retryPendingContacts()
+                ContactSyncManager.syncIfDue(this@CallMonitorService)
                 DeviceLogSync.flushAll(this@CallMonitorService)
                 checkDailyStatus()
                 checkPermissions()

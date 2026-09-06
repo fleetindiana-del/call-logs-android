@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F5F5F5"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <TextView
+            android:id="@+id/tvEmployeeName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Hello"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:textColor="#1A1A1A"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvMonitoringStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Work monitoring: —"
+            android:textSize="15sp"
+            android:textColor="#555555"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvLastSync"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Last sync: —"
+            android:textSize="14sp"
+            android:textColor="#888888"
+            android:layout_marginBottom="32dp" />
+
+        <Button
+            android:id="@+id/btnCheckStatus"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="Check Status"
+            android:textSize="16sp"
+            android:backgroundTint="#1565C0"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="12dp" />
+
+        <Button
+            android:id="@+id/btnCallerLookup"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="Caller Number Lookup"
+            android:textSize="16sp"
+            android:backgroundTint="#00838F"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:id="@+id/tvAdminAccess"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Admin Access"
+            android:textSize="12sp"
+            android:textColor="#AAAAAA"
+            android:gravity="center"
+            android:padding="12dp" />
+
+    </LinearLayout>
+</ScrollView>

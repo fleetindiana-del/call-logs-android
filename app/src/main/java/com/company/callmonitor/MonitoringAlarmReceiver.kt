@@ -14,12 +14,37 @@ class MonitoringAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         val appCtx = context.applicationContext
         val prefs = appCtx.getSharedPreferences("CallMonitorConfig", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("monitoringEnabled", false)) {
+        val monitoring = prefs.getBoolean("monitoringEnabled", false)
+
+        // GPS duty rides the same chain. An exact alarm is the one wake-up that
+        // survives Doze and OEM standby on the phones where WorkManager gets
+        // deferred for hours, so it is the most reliable place to notice that
+        // tracking has died — and a broadcast from an exact alarm is also
+        // allowed to start a foreground service on Android 12+.
+        val locationDuty = com.company.callmonitor.EnrollmentPrefs.hasLocationTracking(appCtx) &&
+            com.company.callmonitor.location.LocationDutyController.isTrackingDesired(appCtx)
+
+        if (!monitoring && !locationDuty) {
             MonitoringAlarmScheduler.cancelAlarm(appCtx)
             return
         }
 
         MonitoringAlarmScheduler.scheduleNextAlarm(appCtx)
+
+        if (locationDuty &&
+            !com.company.callmonitor.location.LocationTrackingService.isHealthy()
+        ) {
+            Thread {
+                try {
+                    com.company.callmonitor.location.LocationDutyController
+                        .ensureAlwaysActive(appCtx, "alarm")
+                } catch (e: Exception) {
+                    Logger.log(appCtx, "📍 alarm restart failed — ${e.javaClass.simpleName}: ${e.message}")
+                }
+            }.start()
+        }
+
+        if (!monitoring) return
 
         val serverUrl = prefs.getString("serverUrl", "") ?: ""
         val deviceId = prefs.getString("deviceId", "") ?: ""

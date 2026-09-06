@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import com.company.callmonitor.callerlookup.CallerLookupWorker
 import java.util.concurrent.TimeUnit
 
 class BootReceiver : BroadcastReceiver() {
@@ -20,6 +21,27 @@ class BootReceiver : BroadcastReceiver() {
                 }
                 CallSyncScheduler.schedule(context)
                 ServiceRestartScheduler.enqueueDelayedRestart(context, 90, TimeUnit.SECONDS)
+            }
+
+            // Location tracking stays always-on when enrolled; website can stop via FCM.
+            if (EnrollmentPrefs.hasLocationTracking(context)) {
+                // Scheduled outside the thread so the keep-alive exists even if
+                // the immediate start is refused right after BOOT_COMPLETED.
+                com.company.callmonitor.location.LocationWatchdogWorker.schedule(context)
+                Thread {
+                    try {
+                        com.company.callmonitor.location.LocationDutyController.ensureAlwaysActive(
+                            context,
+                            "boot"
+                        )
+                    } catch (e: Exception) {
+                        android.util.Log.e("BootReceiver", "Failed to restart LocationTrackingService: ${e.message}")
+                    }
+                }.start()
+            }
+
+            if (EnrollmentPrefs.isEnrolled(context)) {
+                CallerLookupWorker.enqueuePending(context)
             }
         }
     }

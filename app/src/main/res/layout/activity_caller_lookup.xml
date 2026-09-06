@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F5F5F5"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Caller Number Lookup"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:textColor="#1A1A1A"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="This phone generates numbers from the selected series, looks them up on-device, saves results locally, and uploads them to the web dashboard."
+            android:textSize="13sp"
+            android:textColor="#666666"
+            android:layout_marginBottom="20dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Number series"
+            android:textSize="12sp"
+            android:textColor="#888888"
+            android:layout_marginBottom="4dp" />
+
+        <Spinner
+            android:id="@+id/spinnerSeries"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="@android:drawable/btn_dropdown"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Batch size (required)"
+            android:textSize="12sp"
+            android:textColor="#888888"
+            android:layout_marginBottom="4dp" />
+
+        <EditText
+            android:id="@+id/etBatchSize"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="e.g. 200"
+            android:inputType="number"
+            android:text="200"
+            android:maxLines="1"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="How many numbers to fetch in this run (100, 200, 500, or any number you choose)."
+            android:textSize="11sp"
+            android:textColor="#999999"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Start number (optional)"
+            android:textSize="12sp"
+            android:textColor="#888888"
+            android:layout_marginBottom="4dp" />
+
+        <EditText
+            android:id="@+id/etStartNumber"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Leave blank to start at series beginning"
+            android:inputType="phone"
+            android:maxLines="1"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Delay between lookups (ms)"
+            android:textSize="12sp"
+            android:textColor="#888888"
+            android:layout_marginBottom="4dp" />
+
+        <EditText
+            android:id="@+id/etDelayMs"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="200"
+            android:inputType="number"
+            android:text="200"
+            android:maxLines="1"
+            android:layout_marginBottom="16dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="8dp">
+
+            <Button
+                android:id="@+id/btnStart"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="6dp"
+                android:text="Start"
+                android:backgroundTint="#1565C0"
+                android:textColor="#FFFFFF" />
+
+            <Button
+                android:id="@+id/btnPause"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                android:text="Pause"
+                android:backgroundTint="#F9A825"
+                android:textColor="#1A1A1A" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="16dp">
+
+            <Button
+                android:id="@+id/btnResume"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="6dp"
+                android:text="Resume"
+                android:backgroundTint="#2E7D32"
+                android:textColor="#FFFFFF" />
+
+            <Button
+                android:id="@+id/btnStop"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                android:text="Stop"
+                android:backgroundTint="#C62828"
+                android:textColor="#FFFFFF" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvJobStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="No job yet. Enter a batch size and tap Start."
+            android:textSize="14sp"
+            android:textColor="#333333"
+            android:layout_marginBottom="8dp" />
+
+        <ProgressBar
+            android:id="@+id/progressBar"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="100"
+            android:progress="0"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:id="@+id/tvStats"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Processed: 0  |  Found: 0  |  Empty: 0"
+            android:textSize="13sp"
+            android:textColor="#555555"
+            android:layout_marginBottom="16dp" />
+
+        <Button
+            android:id="@+id/btnExport"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="Export Excel"
+            android:backgroundTint="#455A64"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Recent found numbers"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="#1A1A1A"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvRecentResults"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="120dp"
+            android:background="#FFFFFF"
+            android:padding="12dp"
+            android:text="Found numbers will appear here and sync to the web dashboard."
+            android:textSize="12sp"
+            android:textColor="#444444"
+            android:fontFamily="monospace" />
+
+    </LinearLayout>
+</ScrollView>

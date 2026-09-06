@@ -1,13 +1,13 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   Applies to API 30 and below (API 31+ uses data_extraction_rules.xml).
+
+   fleet_enrollment is an EncryptedSharedPreferences store sealed with an AndroidKeystore
+   master key. That key is device-bound and is never backed up, so a restored copy of this
+   file can never be decrypted — it only produces a device that looks enrolled but reports
+   a missing device token. Exclude it and let the user re-enroll cleanly.
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude domain="sharedpref" path="fleet_enrollment.xml" />
+    <exclude domain="sharedpref" path="fleet_enrollment_fallback.xml" />
 </full-backup-content>

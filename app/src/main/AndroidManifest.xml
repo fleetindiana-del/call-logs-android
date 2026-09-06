@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Call monitoring permissions (existing) -->
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
@@ -18,6 +19,12 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
+    <!-- GPS / Location permissions (Phase 2) -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
     <uses-feature
         android:name="android.hardware.telephony"
         android:required="false" />
@@ -32,17 +39,63 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.AppCompat.Light.DarkActionBar">
 
+        <!-- Google Maps SDK. Value comes from the MAPS_API_KEY manifest
+             placeholder, which build.gradle.kts reads from local.properties. -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${MAPS_API_KEY}" />
+
+        <!-- LauncherActivity is the new LAUNCHER entry-point (Phase 1) -->
         <activity
-            android:name=".MainActivity"
-            android:exported="true">
+            android:name=".LauncherActivity"
+            android:exported="true"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
+        <!-- MainActivity: admin settings; no longer LAUNCHER -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="false" />
+
         <activity
             android:name=".OemOnboardingActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.Light.DarkActionBar" />
+
+        <!-- Phase 1 activities -->
+        <activity
+            android:name=".EnrollmentActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.Light.DarkActionBar" />
+
+        <activity
+            android:name=".DriverHomeActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.Light.DarkActionBar" />
+
+        <activity
+            android:name=".EmployeeHomeActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.Light.DarkActionBar" />
+
+        <!-- Phase 2: location status -->
+        <activity
+            android:name=".location.LocationStatusActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.Light.DarkActionBar" />
+
+        <!-- In-app live route track map -->
+        <activity
+            android:name=".location.LocationTrackActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.Light.DarkActionBar" />
+
+        <activity
+            android:name=".callerlookup.CallerLookupActivity"
             android:exported="false"
             android:theme="@style/Theme.AppCompat.Light.DarkActionBar" />
 
@@ -73,6 +126,12 @@
             android:exported="false"
             android:foregroundServiceType="phoneCall|dataSync" />
 
+        <!-- Phase 2: location tracking foreground service -->
+        <service
+            android:name=".location.LocationTrackingService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
         <service
             android:name=".CallMonitorFirebaseMessagingService"
             android:exported="false">
@@ -94,6 +153,16 @@
                 <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
             </intent-filter>
         </receiver>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

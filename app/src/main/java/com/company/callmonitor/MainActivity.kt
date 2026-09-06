@@ -32,6 +32,9 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
+import com.company.callmonitor.callerlookup.CallerLookupActivity
+import com.company.callmonitor.location.LocationDutyController
+import com.company.callmonitor.location.LocationTrackingService
 
 class MainActivity : AppCompatActivity() {
 
@@ -41,15 +44,19 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etEmployeeName: EditText
     private lateinit var etApiKey: EditText
     private lateinit var switchMonitoring: SwitchCompat
+    private lateinit var switchLocationTracking: SwitchCompat
     private lateinit var tvStatus: TextView
+    private lateinit var tvLocationStatus: TextView
     private lateinit var tvLogs: TextView
     private lateinit var btnRefreshLogs: Button
     private lateinit var btnClearLogs: Button
     private lateinit var btnSave: Button
     private lateinit var btnTest: Button
+    private lateinit var btnCallerLookup: Button
 
     // Guards against re-entrant listener calls when we programmatically flip the switch.
     private var suppressToggleListener = false
+    private var suppressLocationToggleListener = false
 
     /**
      * Runs [block] and swallows any exception, logging it instead of crashing.
@@ -105,12 +112,15 @@ class MainActivity : AppCompatActivity() {
         etEmployeeName = findViewById(R.id.etEmployeeName)
         etApiKey = findViewById(R.id.etApiKey)
         switchMonitoring = findViewById(R.id.switchMonitoring)
+        switchLocationTracking = findViewById(R.id.switchLocationTracking)
         tvStatus = findViewById(R.id.tvStatus)
+        tvLocationStatus = findViewById(R.id.tvLocationStatus)
         tvLogs = findViewById(R.id.tvLogs)
         btnRefreshLogs = findViewById(R.id.btnRefreshLogs)
         btnClearLogs = findViewById(R.id.btnClearLogs)
         btnSave = findViewById(R.id.btnSave)
         btnTest = findViewById(R.id.btnTest)
+        btnCallerLookup = findViewById(R.id.btnCallerLookup)
 
         // Let the logs pane scroll: outer NestedScrollView must not steal vertical drags
         findViewById<ScrollView>(R.id.scrollLogs)?.setOnTouchListener { v, event ->
@@ -150,7 +160,12 @@ class MainActivity : AppCompatActivity() {
             testConnection()
         }
 
+        btnCallerLookup.setOnClickListener {
+            startActivity(Intent(this, CallerLookupActivity::class.java))
+        }
+
         updateStatusText()
+        setupLocationTrackingToggle()
 
         switchMonitoring.setOnCheckedChangeListener { _, isChecked ->
             if (suppressToggleListener) return@setOnCheckedChangeListener
@@ -253,6 +268,7 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, OemOnboardingActivity::class.java))
         }
         refreshLogs()
+        refreshLocationTrackingUi()
         checkForRevokedPermissions()
         // Starting FGS from onCreate breaks on Android 12+ (not foreground yet). Retry after we're visible.
         Handler(Looper.getMainLooper()).post {
@@ -285,6 +301,141 @@ class MainActivity : AppCompatActivity() {
             }
             refreshAppStatusLabel()
         }
+    }
+
+    // ---------------------------------------------------------------- location
+
+    /**
+     * Admin switch for GPS tracking. Drives the same [LocationDutyController]
+     * intent the website's start/end route commands use, so a later command from
+     * the website still wins — this is a local override, not a separate mode.
+     */
+    private fun setupLocationTrackingToggle() {
+        refreshLocationTrackingUi()
+
+        switchLocationTracking.setOnCheckedChangeListener { _, isChecked ->
+            if (suppressLocationToggleListener) return@setOnCheckedChangeListener
+
+            if (isChecked) {
+                if (!ensureLocationPermissions()) {
+                    // Permission request is in flight — the switch flips back on
+                    // its own once the user grants it.
+                    setLocationSwitchChecked(false)
+                    return@setOnCheckedChangeListener
+                }
+                applyLocationTracking(true, "admin_toggle")
+            } else {
+                applyLocationTracking(false, "admin_toggle")
+            }
+        }
+    }
+
+    /** Start/stop off the main thread — both paths hit the network and Room. */
+    private fun applyLocationTracking(enable: Boolean, reason: String) {
+        switchLocationTracking.isEnabled = false
+        Thread {
+            val ok = try {
+                if (enable) {
+                    LocationDutyController.startTracking(this, reason)
+                } else {
+                    LocationDutyController.stopTracking(this, reason)
+                }
+            } catch (t: Throwable) {
+                android.util.Log.e("MainActivity", "location toggle failed: ${t.message}", t)
+                safely("logLocationToggleFailure") {
+                    Logger.log(this, "❌ Location toggle failed: ${t.javaClass.simpleName}: ${t.message}")
+                }
+                false
+            }
+            runOnUiThread {
+                if (enable && !ok) {
+                    Toast.makeText(
+                        this,
+                        "Could not start location tracking — check capability and permissions.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                refreshLocationTrackingUi()
+                refreshLogs()
+            }
+        }.start()
+    }
+
+    private fun setLocationSwitchChecked(checked: Boolean) {
+        suppressLocationToggleListener = true
+        switchLocationTracking.isChecked = checked
+        suppressLocationToggleListener = false
+    }
+
+    private fun refreshLocationTrackingUi() {
+        if (!::switchLocationTracking.isInitialized) return
+
+        val enrolled = EnrollmentPrefs.hasLocationTracking(this)
+        val desired = LocationDutyController.isTrackingDesired(this)
+        val permitted = LocationDutyController.hasLocationPermission(this)
+        val running = LocationTrackingService.isRunning
+
+        switchLocationTracking.isEnabled = enrolled
+        setLocationSwitchChecked(enrolled && desired)
+
+        val (text, color) = when {
+            !enrolled ->
+                "Location tracking is not enabled for this device" to "#757575"
+            !desired ->
+                "Status: Tracking OFF — no GPS points are being recorded" to "#757575"
+            !permitted ->
+                "Status: Tracking ON — waiting for location permission" to "#EF6C00"
+            running ->
+                "Status: Tracking ON — recording route" to "#2E7D32"
+            else ->
+                "Status: Tracking ON — starting service…" to "#EF6C00"
+        }
+        tvLocationStatus.text = text
+        tvLocationStatus.setTextColor(Color.parseColor(color))
+    }
+
+    /**
+     * @return true when location can be tracked right now; false when a permission
+     * request was launched instead (tracking resumes in [onRequestPermissionsResult]).
+     */
+    private fun ensureLocationPermissions(): Boolean {
+        val needed = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            needed.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        val missing = needed.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty()) {
+            try {
+                ActivityCompat.requestPermissions(this, missing.toTypedArray(), REQ_LOCATION_PERMS)
+            } catch (e: Exception) {
+                Logger.log(this, "⚠️ Could not request location permissions: ${e.message}")
+            }
+            return false
+        }
+
+        // Background access is what keeps the route recording once the screen is
+        // off; ask for it, but do not block tracking on the answer.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            try {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+                    REQ_BG_LOCATION_PERMS
+                )
+            } catch (e: Exception) {
+                Logger.log(this, "⚠️ Could not request background location: ${e.message}")
+            }
+        }
+        return true
     }
 
     private fun checkForRevokedPermissions() {
@@ -446,6 +597,27 @@ class MainActivity : AppCompatActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_LOCATION_PERMS) {
+            val granted = grantResults.isNotEmpty() &&
+                grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+            if (granted) {
+                // ensureLocationPermissions() now passes, and also asks for
+                // background access on its way through.
+                if (ensureLocationPermissions()) applyLocationTracking(true, "admin_toggle")
+            } else {
+                Toast.makeText(
+                    this,
+                    "Location permission is required to track GPS",
+                    Toast.LENGTH_LONG
+                ).show()
+                refreshLocationTrackingUi()
+            }
+            return
+        }
+        if (requestCode == REQ_BG_LOCATION_PERMS) {
+            refreshLocationTrackingUi()
+            return
+        }
         if (requestCode == 100) {
             try {
                 if (grantResults.isEmpty() || grantResults.any { it != PackageManager.PERMISSION_GRANTED }) {
@@ -485,6 +657,16 @@ class MainActivity : AppCompatActivity() {
                     switchMonitoring.isChecked = true
                     suppressToggleListener = false
                     safely("refreshAppStatusLabel") { refreshAppStatusLabel() }
+                    // The toggle listener bailed out when permissions were missing, so this
+                    // is the only place the first contact sync can happen for a new employee.
+                    safely("syncDeviceContacts") {
+                        syncDeviceContacts(
+                            etServerUrl.text.toString(),
+                            etApiKey.text.toString(),
+                            etDeviceId.text.toString(),
+                            etEmployeeName.text.toString()
+                        )
+                    }
                 }
             } catch (t: Throwable) {
                 android.util.Log.e("MainActivity", "onRequestPermissionsResult failed: ${t.message}", t)
@@ -702,72 +884,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun syncDeviceContacts(serverUrl: String, apiKey: String, deviceId: String, employeeName: String) {
         Thread {
-            try {
-                val contactsList = mutableListOf<ContactEntry>()
-                val cursor = contentResolver.query(
-                    android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                    null, null, null, null
-                )
-                val now = System.currentTimeMillis()
-                
-                cursor?.use {
-                    val nameIndex = it.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
-                    val numberIndex = it.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER)
-                    
-                    while (it.moveToNext()) {
-                        val name = if (nameIndex >= 0) it.getString(nameIndex) else "Unknown"
-                        var number = if (numberIndex >= 0) it.getString(numberIndex) else ""
-                        
-                        // Clean up the phone number for better representation/matching
-                        number = number.replace(Regex("[^0-9+]"), "")
-                        
-                        if (number.isNotBlank()) {
-                            contactsList.add(ContactEntry(deviceId, employeeName, name, number, now))
-                        }
-                    }
-                }
-                
-                if (contactsList.isNotEmpty()) {
-                    val batchSize = 200
-                    val batches = contactsList.chunked(batchSize)
-                    Logger.log(this, "🔄 Syncing ${contactsList.size} contacts in ${batches.size} batch(es)...")
-                    runOnUiThread { refreshLogs() }
-
-                    var allSuccess = true
-                    var totalSynced = 0
-                    val failedContacts = mutableListOf<ContactEntry>()
-                    for ((index, batch) in batches.withIndex()) {
-                        Logger.log(this, "📤 Sending batch ${index + 1}/${batches.size} (${batch.size} contacts)...")
-                        runOnUiThread { refreshLogs() }
-                        val success = ApiClient.syncContacts(serverUrl, apiKey, batch, this)
-                        if (success) {
-                            totalSynced += batch.size
-                        } else {
-                            allSuccess = false
-                            failedContacts.addAll(batch)
-                            Logger.log(this, "❌ Batch ${index + 1} failed — saving offline to retry later")
-                        }
-                    }
-
-                    if (failedContacts.isNotEmpty()) {
-                        PendingContactsManager.savePendingContacts(this, failedContacts)
-                    }
-
-                    if (allSuccess) {
-                        Logger.log(this, "✅ All $totalSynced contacts synced successfully")
-                    } else {
-                        Logger.log(this, "⚠️ Synced $totalSynced of ${contactsList.size} contacts (some batches failed)")
-                    }
-                    runOnUiThread { refreshLogs() }
-                } else {
-                    Logger.log(this, "ℹ️ No contacts found to sync")
-                    runOnUiThread { refreshLogs() }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                Logger.log(this, "❌ Error reading contacts: ${e.message}")
-                runOnUiThread { refreshLogs() }
-            }
+            ContactSyncManager.syncNow(this, serverUrl, apiKey, deviceId, employeeName)
+            runOnUiThread { refreshLogs() }
         }.start()
+    }
+
+    companion object {
+        private const val REQ_LOCATION_PERMS = 300
+        private const val REQ_BG_LOCATION_PERMS = 301
     }
 }

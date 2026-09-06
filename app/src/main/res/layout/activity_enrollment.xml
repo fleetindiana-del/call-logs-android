@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F5F5F5"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="32dp"
+        android:gravity="center_horizontal">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="48dp"
+            android:layout_marginBottom="8dp"
+            android:text="Fleet"
+            android:textSize="36sp"
+            android:textStyle="bold"
+            android:textColor="#1565C0" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="40dp"
+            android:text="Device Enrollment"
+            android:textSize="16sp"
+            android:textColor="#555555" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Server URL"
+            android:textSize="13sp"
+            android:textColor="#333333"
+            android:layout_marginBottom="4dp" />
+
+        <EditText
+            android:id="@+id/etServerUrl"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@android:drawable/edit_text"
+            android:hint="https://your-backend.vercel.app"
+            android:inputType="textUri"
+            android:padding="12dp"
+            android:textSize="14sp"
+            android:layout_marginBottom="20dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Enrollment Code"
+            android:textSize="13sp"
+            android:textColor="#333333"
+            android:layout_marginBottom="4dp" />
+
+        <EditText
+            android:id="@+id/etEnrollmentCode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@android:drawable/edit_text"
+            android:hint="Enter code from administrator"
+            android:inputType="text"
+            android:padding="12dp"
+            android:textSize="14sp"
+            android:layout_marginBottom="32dp" />
+
+        <Button
+            android:id="@+id/btnEnroll"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="Enroll Device"
+            android:textSize="16sp"
+            android:backgroundTint="#1565C0"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:id="@+id/tvEnrollStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:textSize="14sp"
+            android:textColor="#C62828"
+            android:text=""
+            android:minHeight="48dp" />
+
+    </LinearLayout>
+</ScrollView>
