@@ -20,8 +20,9 @@ class LocationUploadWorker(
         val dao = db.locationPointDao()
 
         // Also poll missed commands when network is available
+        var fixCommandIds: List<String> = emptyList()
         try {
-            pollCommands()
+            fixCommandIds = pollCommands()
         } catch (e: Exception) {
             Logger.log(applicationContext, "⚠️ command poll failed: ${e.message}")
         }
@@ -69,10 +70,23 @@ class LocationUploadWorker(
             dao.pruneSynced(thirtyDaysAgo)
         }
 
+        // The upload pass finished, so the fix-and-upload commands that were
+        // marked UPLOADING above are done — otherwise they hang at UPLOADING
+        // and the fleet map shows a request that never resolves.
+        for (id in fixCommandIds) {
+            try {
+                LocationApiClient.updateCommandStatus(applicationContext, id, "COMPLETED")
+            } catch (e: Exception) {
+                Logger.log(applicationContext, "⚠️ command complete failed: ${e.message}")
+            }
+        }
+
         return Result.success()
     }
 
-    private fun pollCommands() {
+    /** Returns the ids of fix-and-upload commands picked up in this pass. */
+    private fun pollCommands(): List<String> {
+        val fixCommandIds = mutableListOf<String>()
         val commands = LocationApiClient.getCommands(applicationContext)
         for (cmd in commands) {
             val type = cmd.optString("type", cmd.optString("action"))
@@ -81,6 +95,7 @@ class LocationUploadWorker(
                 "location_upload", "location_latest" -> {
                     if (id.isNotBlank()) {
                         LocationApiClient.updateCommandStatus(applicationContext, id, "UPLOADING")
+                        fixCommandIds.add(id)
                     }
                     // continue upload loop in doWork
                 }
@@ -114,6 +129,7 @@ class LocationUploadWorker(
                 }
             }
         }
+        return fixCommandIds
     }
 
     companion object {
