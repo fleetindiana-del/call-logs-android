@@ -2,9 +2,7 @@ package com.company.callmonitor.location
 
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
-import androidx.core.content.ContextCompat
 import com.company.callmonitor.EnrollmentPrefs
 import com.company.callmonitor.Logger
 
@@ -23,15 +21,8 @@ object LocationDutyController {
     private const val PREFS = "location_prefs"
     private const val KEY_DESIRED = "trackingDesired"
 
-    fun hasLocationPermission(context: Context): Boolean {
-        val fine = ContextCompat.checkSelfPermission(
-            context, android.Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-        val coarse = ContextCompat.checkSelfPermission(
-            context, android.Manifest.permission.ACCESS_COARSE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-        return fine || coarse
-    }
+    fun hasLocationPermission(context: Context): Boolean =
+        LocationEnvironment.hasForegroundPermission(context)
 
     fun isTrackingDesired(context: Context): Boolean {
         // Default true = always-on until website End Route
@@ -56,18 +47,28 @@ object LocationDutyController {
             Logger.log(context, "📍 skip start ($reason): location capability off")
             return false
         }
-        if (!hasLocationPermission(context)) {
-            Logger.log(context, "📍 skip start ($reason): location permission missing")
-            return false
-        }
 
         setTrackingDesired(context, true)
 
         val appCtx = context.applicationContext
         // Armed on every attempt, including the "already active" one below, so a
         // device that is currently fine still has a keep-alive for when it is not.
+        // Armed *before* the permission and GPS gates too: those are exactly the
+        // states we must keep re-checking, and bailing out first meant a phone
+        // with location briefly off lost every route back to tracking until
+        // someone pushed a command from the dashboard.
         LocationWatchdogWorker.schedule(appCtx)
         com.company.callmonitor.MonitoringAlarmScheduler.ensureAlarmChain(appCtx)
+
+        if (!hasLocationPermission(context) || !LocationEnvironment.isLocationEnabled(appCtx)) {
+            val blocked = LocationEnvironment.trackingStatus(appCtx)
+            Logger.log(appCtx, "📍 cannot start ($reason): $blocked")
+            LocationHealthNotifier.update(appCtx)
+            reportState(appCtx, blocked)
+            return false
+        }
+        LocationHealthNotifier.clear(appCtx)
+
         val prefs = appCtx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         var sessionId = prefs.getString("activeSessionId", null)
 
@@ -108,7 +109,7 @@ object LocationDutyController {
             prefs.edit().putString("activeSessionId", sessionId).apply()
 
             try {
-                LocationApiClient.registerDevice(appCtx, trackingStatus = "TRACKING", gpsEnabled = true)
+                reportState(appCtx, LocationEnvironment.trackingStatus(appCtx))
                 LocationApiClient.upsertSession(
                     appCtx,
                     sessionId = sessionId,
@@ -176,7 +177,7 @@ object LocationDutyController {
                     status = "COMPLETED",
                     stoppedAtMs = endedAt
                 )
-                LocationApiClient.registerDevice(appCtx, trackingStatus = "IDLE", gpsEnabled = true)
+                reportState(appCtx, LocationEnvironment.STATUS_IDLE)
             } catch (e: Exception) {
                 Logger.log(appCtx, "📍 upsert/register on stop ($reason): ${e.message}")
             }
@@ -198,5 +199,52 @@ object LocationDutyController {
             return false
         }
         return startTracking(context, reason)
+    }
+
+    /**
+     * Rebuild the tracking service from scratch, keeping the session.
+     *
+     * Used when the service is alive but its provider subscription is not
+     * recoverable in place. Stopping first matters: [startTracking] hands
+     * ACTION_START to the existing instance, which is precisely the instance
+     * that is not working.
+     */
+    @JvmStatic
+    fun requestRestart(context: Context, reason: String) {
+        val appCtx = context.applicationContext
+        Thread {
+            try {
+                val stop = Intent(appCtx, LocationTrackingService::class.java).apply {
+                    action = LocationTrackingService.ACTION_STOP
+                }
+                appCtx.startService(stop)
+                // Let onDestroy release the subscription before we ask for a new
+                // one, otherwise the fresh service can inherit the dead callback.
+                Thread.sleep(1_500)
+            } catch (e: Exception) {
+                Logger.log(appCtx, "📍 restart: stop leg failed — ${e.message}")
+            }
+            // trackingDesired survives: this is a repair, not an End Route.
+            startTracking(appCtx, reason)
+        }.start()
+    }
+
+    /**
+     * Push the phone's real capability state to the fleet map. Callers on the
+     * main thread must wrap this — it does network I/O.
+     */
+    @JvmStatic
+    fun reportState(context: Context, trackingStatus: String) {
+        val appCtx = context.applicationContext
+        try {
+            LocationApiClient.registerDevice(
+                appCtx,
+                trackingStatus = trackingStatus,
+                gpsEnabled = LocationEnvironment.isLocationEnabled(appCtx),
+                permissionStatus = LocationEnvironment.permissionStatus(appCtx)
+            )
+        } catch (e: Exception) {
+            Logger.log(appCtx, "📍 report state ($trackingStatus): ${e.message}")
+        }
     }
 }

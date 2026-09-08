@@ -15,7 +15,8 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.company.callmonitor.location.FleetLocationDatabase
 import com.company.callmonitor.location.LocationDutyController
-import com.company.callmonitor.location.LocationTrackingService
+import com.company.callmonitor.location.LocationEnableRequest
+import com.company.callmonitor.location.LocationEnvironment
 import com.company.callmonitor.location.LocationUploadWorker
 import com.company.callmonitor.callerlookup.CallerLookupActivity
 
@@ -98,6 +99,8 @@ class DriverHomeActivity : AppCompatActivity() {
         handler.post(refreshRunnable)
         if (EnrollmentPrefs.hasLocationTracking(this)) {
             LocationUploadWorker.enqueue(this)
+            // One tap, in place, without sending the driver into Settings.
+            LocationEnableRequest.promptIfNeeded(this)
             ensureTrackingIfPermitted()
         }
     }
@@ -108,12 +111,19 @@ class DriverHomeActivity : AppCompatActivity() {
     }
 
     private fun refreshUi() {
-        val isTracking = LocationTrackingService.isRunning
-        tvTrackingStatus.text = when {
-            isTracking -> "Tracking active — start/end from website"
-            !EnrollmentPrefs.hasLocationTracking(this) -> "Location tracking not enabled"
-            !LocationDutyController.isTrackingDesired(this) -> "Route ended from website"
-            else -> "Waiting for GPS permission / start"
+        // Report the blocking cause, not just whether a service object exists —
+        // "Tracking active" was shown for hours on phones that were recording
+        // nothing because Location had been switched off underneath the service.
+        tvTrackingStatus.text = when (LocationEnvironment.trackingStatus(this)) {
+            LocationEnvironment.STATUS_PERMISSION_DENIED ->
+                "Location permission is OFF — tap GPS Status to fix"
+            LocationEnvironment.STATUS_GPS_OFF ->
+                "Phone Location is OFF — route is not being recorded"
+            LocationEnvironment.STATUS_IDLE -> "Route ended from website"
+            LocationEnvironment.STATUS_BACKGROUND_DENIED ->
+                "Set location access to \"Allow all the time\" to keep tracking"
+            LocationEnvironment.STATUS_NO_FIX -> "No GPS fix yet — recovering"
+            else -> "Tracking active — start/end from website"
         }
 
         Thread {
@@ -153,6 +163,17 @@ class DriverHomeActivity : AppCompatActivity() {
             LocationDutyController.ensureAlwaysActive(this, "driver_home")
             runOnUiThread { refreshUi() }
         }.start()
+    }
+
+    @Deprecated("Activity result API; kept to match this Activity's permission flow")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == LocationEnableRequest.REQUEST_CODE && resultCode == RESULT_OK) {
+            // Location just came back on — start recording now rather than
+            // waiting for the next watchdog cycle.
+            ensureTrackingIfPermitted()
+        }
     }
 
     override fun onRequestPermissionsResult(

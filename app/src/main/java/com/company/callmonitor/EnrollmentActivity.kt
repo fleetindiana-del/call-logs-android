@@ -179,7 +179,10 @@ class EnrollmentActivity : AppCompatActivity() {
                 com.company.callmonitor.location.LocationApiClient.registerDevice(
                     this,
                     trackingStatus = "ENROLLED",
-                    gpsEnabled = false
+                    gpsEnabled = com.company.callmonitor.location.LocationEnvironment
+                        .isLocationEnabled(this),
+                    permissionStatus = com.company.callmonitor.location.LocationEnvironment
+                        .permissionStatus(this)
                 )
             } catch (_: Exception) {
             }

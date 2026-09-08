@@ -2,12 +2,9 @@ package com.company.callmonitor.location
 
 import android.content.Context
 import android.content.Intent
-import android.location.LocationManager
-import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Button
 import android.widget.TextView
@@ -52,6 +49,14 @@ class LocationStatusActivity : AppCompatActivity() {
         btnFixSettings = findViewById(R.id.btnFixSettings)
 
         btnFixSettings.setOnClickListener {
+            // Prefer the one-tap system dialog; fall back to Settings only when
+            // the master switch is already on and something else is wrong.
+            if (!LocationEnvironment.isLocationEnabled(this) &&
+                LocationEnvironment.hasForegroundPermission(this)
+            ) {
+                LocationEnableRequest.promptIfNeeded(this)
+                return@setOnClickListener
+            }
             try {
                 startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
             } catch (_: Exception) {
@@ -78,28 +83,14 @@ class LocationStatusActivity : AppCompatActivity() {
     override fun onSupportNavigateUp(): Boolean { finish(); return true }
 
     private fun refreshAll() {
-        tvDutyStatus.text = if (LocationTrackingService.isRunning) {
-            "Tracking active — website controlled"
-        } else {
-            "Tracking idle"
-        }
+        tvDutyStatus.text = "Status: ${LocationEnvironment.trackingStatus(this)}"
 
-        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val gpsOn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            lm.isLocationEnabled
-        } else {
-            @Suppress("DEPRECATION")
-            lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
-        }
-        tvGpsEnabled.text = "GPS enabled: ${if (gpsOn) "Yes" else "No"}"
+        tvGpsEnabled.text =
+            "GPS enabled: ${if (LocationEnvironment.isLocationEnabled(this)) "Yes" else "No"}"
 
-        val fineGranted = androidx.core.content.ContextCompat.checkSelfPermission(
-            this, android.Manifest.permission.ACCESS_FINE_LOCATION
-        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        tvPermissions.text = "Fine location permission: ${if (fineGranted) "Granted" else "DENIED"}"
+        tvPermissions.text = "Location permission: ${LocationEnvironment.permissionStatus(this)}"
 
-        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        val batteryExempt = pm.isIgnoringBatteryOptimizations(packageName)
+        val batteryExempt = LocationEnvironment.isIgnoringBatteryOptimizations(this)
         tvBatteryOpt.text = "Battery optimisation: ${if (batteryExempt) "Unrestricted" else "Restricted (fix recommended)"}"
 
         executor.execute {

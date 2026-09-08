@@ -46,7 +46,10 @@ class LocationTrackingService : Service() {
             // Proof the subscription is alive, recorded before any filtering so a
             // run of rejected fixes never looks like a dead provider to the
             // watchdog. [lastAcceptedAt] is what tracks useful output.
-            if (locations.isNotEmpty()) lastFixAt = SystemClock.elapsedRealtime()
+            if (locations.isNotEmpty()) {
+                lastFixAt = SystemClock.elapsedRealtime()
+                silentCycles = 0
+            }
 
             val sid = sessionId ?: return
             val deviceId = EnrollmentPrefs.getDeviceId(applicationContext)
@@ -165,6 +168,27 @@ class LocationTrackingService : Service() {
     @Volatile
     private var subscribedAt = 0L
 
+    /**
+     * Elapsed-realtime this service last *began* recording (start or resume).
+     *
+     * Health is measured from here rather than from [subscribedAt], which the
+     * watchdog below refreshes on every re-subscribe: a service whose provider
+     * had gone permanently silent kept bumping [subscribedAt] every cycle and so
+     * reported itself healthy forever. Every recovery path — the 8-minute alarm,
+     * the 15-minute worker, and [LocationDutyController.startTracking] itself —
+     * is gated on that health check, so all three quietly did nothing while the
+     * phone recorded no route at all. This is the anchor that cannot be moved by
+     * merely trying again.
+     */
+    @Volatile
+    private var recordingSince = 0L
+
+    /** Consecutive watchdog cycles that re-subscribed and still saw no fix. */
+    private var silentCycles = 0
+
+    /** Elapsed-realtime of the last heartbeat posted to the server. */
+    private var lastHeartbeatAt = 0L
+
     private val watchdogHandler = Handler(Looper.getMainLooper())
     private val watchdog = object : Runnable {
         override fun run() {
@@ -177,13 +201,27 @@ class LocationTrackingService : Service() {
      * The failure this exists for: the service stays alive with its notification
      * showing, but the fused provider stops delivering — Play services updated
      * underneath us, the OEM froze the app and thawed it without the
-     * subscription, or the user toggled GPS off and back on. Nothing throws and
-     * nothing restarts the service, so tracking is dead until the driver next
-     * opens the app. Re-subscribing costs one call, so do it on any long silence.
+     * subscription, or the user toggled GPS off and back on. Nothing throws, so
+     * the silence has to be measured. Re-subscribing costs one call and is tried
+     * first; when that keeps failing the service is rebuilt, and the whole time
+     * the phone's real state is reported so the outage is visible from the
+     * dashboard rather than only from a missing route afterwards.
      */
     private fun checkSubscriptionAlive() {
         if (sessionId == null) return
         val now = SystemClock.elapsedRealtime()
+
+        reportHeartbeat(now)
+
+        // The phone's own location switch going off is not something another
+        // re-subscribe can fix. Say so — on the notification shade and to the
+        // server — instead of spinning silently for hours.
+        if (LocationEnvironment.isBlocked(applicationContext)) {
+            LocationHealthNotifier.update(applicationContext)
+            return
+        }
+        LocationHealthNotifier.clear(applicationContext)
+
         val reference = maxOf(lastFixAt, subscribedAt)
         if (reference == 0L) return
 
@@ -192,11 +230,59 @@ class LocationTrackingService : Service() {
         val allowance = maxOf(currentIntervalMs * 5, MIN_SILENCE_MS)
         if (now - reference < allowance) return
 
+        silentCycles++
         Logger.log(
             applicationContext,
-            "📍 no fixes for ${(now - reference) / 1000}s — re-subscribing to location updates"
+            "📍 no fixes for ${(now - reference) / 1000}s — re-subscribing (attempt $silentCycles)"
         )
         startLocationUpdates()
+
+        // Re-subscribing is the cheap fix and usually works. When it has not
+        // worked several times over, the fused client itself is the problem —
+        // Play services updated under us, or the OEM thawed the process without
+        // its subscription. Tear the service down so the duty controller builds
+        // a fresh one; staying alive here is what made the outage permanent.
+        if (silentCycles >= MAX_SILENT_CYCLES) {
+            Logger.log(
+                applicationContext,
+                "📍 provider dead after $silentCycles re-subscribes — restarting service"
+            )
+            silentCycles = 0
+            LocationDutyController.requestRestart(applicationContext, "provider_dead")
+        }
+    }
+
+    /**
+     * Tell the server what this phone is actually doing, roughly every five
+     * minutes. Until now [LocationApiClient.heartbeat] existed but was never
+     * called from anywhere, so `DeviceLocationState` only ever changed when a
+     * point was uploaded — meaning a device that had stopped recording looked
+     * identical to one that was simply parked.
+     */
+    private fun reportHeartbeat(now: Long) {
+        if (lastHeartbeatAt != 0L && now - lastHeartbeatAt < HEARTBEAT_PERIOD_MS) return
+        lastHeartbeatAt = now
+
+        val appCtx = applicationContext
+        submit {
+            val pending = try {
+                FleetLocationDatabase.getInstance(appCtx).locationPointDao().countByState("PENDING")
+            } catch (e: Exception) {
+                0
+            }
+            try {
+                LocationApiClient.heartbeat(
+                    appCtx,
+                    trackingStatus = LocationEnvironment.trackingStatus(appCtx),
+                    gpsEnabled = LocationEnvironment.isLocationEnabled(appCtx),
+                    permissionStatus = LocationEnvironment.permissionStatus(appCtx),
+                    pendingPoints = pending,
+                    batteryPercent = currentBatteryPercent()
+                )
+            } catch (e: Exception) {
+                android.util.Log.w(TAG, "heartbeat failed: ${e.message}")
+            }
+        }
     }
 
     private fun isLiveMode() = applicationContext
@@ -289,6 +375,7 @@ class LocationTrackingService : Service() {
                     seedFilterAnchor(sid)
                 }
                 if (!startForegroundNotification()) return START_NOT_STICKY
+                beginRecording()
                 startLocationUpdates()
             }
 
@@ -317,9 +404,28 @@ class LocationTrackingService : Service() {
             seedFilterAnchor(sid)
         }
         if (!startForegroundNotification()) return false
+        beginRecording()
         startLocationUpdates()
         Logger.log(applicationContext, "📍 tracking resumed after restart session=$sid")
         return true
+    }
+
+    /**
+     * Mark the start of a recording stretch. [recordingSince] is the only
+     * timestamp the staleness check trusts when no fix has ever arrived, so a
+     * service that starts and then produces nothing goes stale on schedule
+     * instead of looking permanently healthy.
+     */
+    private fun beginRecording() {
+        // Once per service instance, deliberately. A repeat ACTION_START — which
+        // the 8-minute alarm sends whenever it finds us unhealthy — must not
+        // push the staleness deadline out, or "keep asking the same broken
+        // service to try again" becomes the permanent state all over again.
+        // A genuinely fresh instance starts from zero, which is what we want.
+        if (recordingSince == 0L) {
+            recordingSince = SystemClock.elapsedRealtime()
+            silentCycles = 0
+        }
     }
 
     private fun startWatchdog() {
@@ -491,6 +597,14 @@ class LocationTrackingService : Service() {
         /** Never re-subscribe on a silence shorter than this. */
         private const val MIN_SILENCE_MS = 3 * 60_000L
         /**
+         * Re-subscribes to try before concluding the fused client is the problem
+         * and rebuilding the service. Each attempt resets the silence clock, so
+         * this is [MIN_SILENCE_MS] apart — about a quarter-hour of patience.
+         */
+        private const val MAX_SILENT_CYCLES = 5
+        /** How often the service reports its real state to the server. */
+        private const val HEARTBEAT_PERIOD_MS = 5 * 60_000L
+        /**
          * Beyond this a service claiming to run is treated as dead by
          * [LocationDutyController], which then restarts it. Deliberately far
          * longer than [MIN_SILENCE_MS] so the cheap in-process fix gets several
@@ -530,9 +644,23 @@ class LocationTrackingService : Service() {
         fun isHealthy(): Boolean {
             val svc = current ?: return false
             if (!isRunning || svc.sessionId == null) return false
-            val reference = maxOf(svc.lastFixAt, svc.subscribedAt)
+
+            // Only evidence the service cannot manufacture counts: a delivered
+            // fix, or — before the first one lands — the moment recording began.
+            // Using the last re-subscribe here (as this did) let the in-service
+            // watchdog vouch for itself forever, so a permanently silent
+            // provider never became "unhealthy" and nothing ever restarted it.
+            val reference = if (svc.lastFixAt != 0L) svc.lastFixAt else svc.recordingSince
             if (reference == 0L) return false
             return SystemClock.elapsedRealtime() - reference < STALE_AFTER_MS
+        }
+
+        /** Elapsed-realtime ms since the provider last delivered anything. */
+        fun millisSinceLastFix(): Long? {
+            val svc = current ?: return null
+            val reference = if (svc.lastFixAt != 0L) svc.lastFixAt else svc.recordingSince
+            if (reference == 0L) return null
+            return SystemClock.elapsedRealtime() - reference
         }
 
         /** Elapsed-realtime ms since the last stored point, or null if unknown. */

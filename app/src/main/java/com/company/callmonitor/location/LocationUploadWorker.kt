@@ -8,6 +8,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import com.company.callmonitor.EnrollmentPrefs
 import com.company.callmonitor.Logger
 
 class LocationUploadWorker(
@@ -78,6 +79,23 @@ class LocationUploadWorker(
                 LocationApiClient.updateCommandStatus(applicationContext, id, "COMPLETED")
             } catch (e: Exception) {
                 Logger.log(applicationContext, "⚠️ command complete failed: ${e.message}")
+            }
+        }
+
+        // A fix-and-upload request that produced nothing is the dashboard's main
+        // symptom of a stalled device. Answering it with the real reason turns
+        // the generic "device did not respond" into "GPS is off" / "no fix".
+        if (EnrollmentPrefs.hasLocationTracking(applicationContext)) {
+            try {
+                LocationApiClient.heartbeat(
+                    applicationContext,
+                    trackingStatus = LocationEnvironment.trackingStatus(applicationContext),
+                    gpsEnabled = LocationEnvironment.isLocationEnabled(applicationContext),
+                    pendingPoints = dao.countByState("PENDING"),
+                    permissionStatus = LocationEnvironment.permissionStatus(applicationContext)
+                )
+            } catch (e: Exception) {
+                Logger.log(applicationContext, "⚠️ heartbeat failed: ${e.message}")
             }
         }
 

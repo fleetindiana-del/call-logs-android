@@ -121,6 +121,17 @@
             android:name=".MonitoringAlarmReceiver"
             android:exported="false" />
 
+        <!-- Resume recording the moment the driver turns Location back on.
+             PROVIDERS_CHANGED is exempt from the implicit-broadcast ban, so a
+             manifest receiver still gets it with the app in the background. -->
+        <receiver
+            android:name=".location.LocationProviderChangedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.location.PROVIDERS_CHANGED" />
+            </intent-filter>
+        </receiver>
+
         <service
             android:name=".CallMonitorService"
             android:exported="false"

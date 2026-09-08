@@ -108,7 +108,21 @@ object LocationApiClient {
         return postForBody(serverUrl, "/api/location/commands/$commandId/status", deviceToken, body) != null
     }
 
-    fun heartbeat(context: Context, trackingStatus: String, gpsEnabled: Boolean, pendingPoints: Int): Boolean {
+    /**
+     * POST /api/location/heartbeat — the periodic "here is what is actually
+     * happening on this phone" report. It existed before but had no callers, so
+     * `DeviceLocationState` only ever moved when a point was uploaded: a device
+     * that had stopped recording entirely was indistinguishable on the fleet map
+     * from one parked in a yard.
+     */
+    fun heartbeat(
+        context: Context,
+        trackingStatus: String,
+        gpsEnabled: Boolean,
+        pendingPoints: Int,
+        permissionStatus: String? = null,
+        batteryPercent: Int? = null
+    ): Boolean {
         val serverUrl = EnrollmentPrefs.getServerUrl(context)
         val deviceToken = EnrollmentPrefs.getDeviceToken(context)
         if (serverUrl.isBlank() || deviceToken.isBlank()) return false
@@ -117,6 +131,8 @@ object LocationApiClient {
             put("gpsEnabled", gpsEnabled)
             put("pendingPoints", pendingPoints)
             put("appVersion", "1.0")
+            if (permissionStatus != null) put("permissionStatus", permissionStatus)
+            if (batteryPercent != null) put("batteryPercent", batteryPercent)
         }.toString()
         return postForBody(serverUrl, "/api/location/heartbeat", deviceToken, body) != null
     }
@@ -124,8 +140,9 @@ object LocationApiClient {
     /** POST /api/location/device/register — creates/updates fleet-map device row ASAP. */
     fun registerDevice(
         context: Context,
-        trackingStatus: String = "TRACKING",
-        gpsEnabled: Boolean = true,
+        trackingStatus: String,
+        gpsEnabled: Boolean,
+        permissionStatus: String? = null,
         batteryPercent: Int? = null
     ): Boolean {
         val serverUrl = EnrollmentPrefs.getServerUrl(context)
@@ -135,6 +152,7 @@ object LocationApiClient {
             put("trackingStatus", trackingStatus)
             put("gpsEnabled", gpsEnabled)
             put("appVersion", "1.0")
+            if (permissionStatus != null) put("permissionStatus", permissionStatus)
             if (batteryPercent != null) put("batteryPercent", batteryPercent)
         }.toString()
         return postForBody(serverUrl, "/api/location/device/register", deviceToken, body) != null

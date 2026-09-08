@@ -29,7 +29,24 @@ class LocationWatchdogWorker(
 
         if (!EnrollmentPrefs.hasLocationTracking(ctx)) return Result.success()
         if (!LocationDutyController.isTrackingDesired(ctx)) return Result.success()
-        if (!LocationDutyController.hasLocationPermission(ctx)) return Result.success()
+
+        val status = LocationEnvironment.trackingStatus(ctx)
+
+        // Report first, unconditionally. This worker is the only thing still
+        // running when the service is dead, so it is the one chance the fleet
+        // map has to learn that a device stopped recording — previously it
+        // returned success in silence and the dashboard kept showing the stale
+        // "TRACKING" written when the session started days earlier.
+        reportHeartbeat(ctx, status)
+
+        // Permission or the master switch: nothing to restart until the driver
+        // acts, so make sure they are being asked.
+        if (LocationEnvironment.isBlocked(ctx)) {
+            LocationHealthNotifier.update(ctx)
+            Logger.log(ctx, "📍 watchdog: tracking blocked ($status)")
+            return Result.success()
+        }
+        LocationHealthNotifier.clear(ctx)
 
         // Healthy service: nothing to do beyond draining anything still queued.
         if (LocationTrackingService.isHealthy()) {
@@ -37,9 +54,31 @@ class LocationWatchdogWorker(
             return Result.success()
         }
 
-        Logger.log(ctx, "📍 watchdog: tracking not healthy — restarting")
-        LocationDutyController.startTracking(ctx, "watchdog")
+        Logger.log(ctx, "📍 watchdog: tracking not healthy ($status) — restarting")
+        if (LocationTrackingService.isRunning) {
+            // Alive but not producing: hand it a clean service rather than
+            // another ACTION_START the broken instance would absorb.
+            LocationDutyController.requestRestart(ctx, "watchdog_restart")
+        } else {
+            LocationDutyController.startTracking(ctx, "watchdog")
+        }
         return Result.success()
+    }
+
+    private fun reportHeartbeat(ctx: Context, status: String) {
+        try {
+            val pending = FleetLocationDatabase.getInstance(ctx)
+                .locationPointDao().countByState("PENDING")
+            LocationApiClient.heartbeat(
+                ctx,
+                trackingStatus = status,
+                gpsEnabled = LocationEnvironment.isLocationEnabled(ctx),
+                pendingPoints = pending,
+                permissionStatus = LocationEnvironment.permissionStatus(ctx)
+            )
+        } catch (e: Exception) {
+            Logger.log(ctx, "📍 watchdog heartbeat failed: ${e.message}")
+        }
     }
 
     companion object {
