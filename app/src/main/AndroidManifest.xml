@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.PROCESS_OUTGOING_CALLS" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Lets the shift log distinguish "no internet" from "tracking stopped". -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
@@ -94,11 +96,6 @@
             android:exported="false"
             android:theme="@style/Theme.AppCompat.Light.DarkActionBar" />
 
-        <activity
-            android:name=".callerlookup.CallerLookupActivity"
-            android:exported="false"
-            android:theme="@style/Theme.AppCompat.Light.DarkActionBar" />
-
         <receiver
             android:name=".PhoneStateReceiver"
             android:exported="true">
@@ -120,6 +117,17 @@
         <receiver
             android:name=".MonitoringAlarmReceiver"
             android:exported="false" />
+
+        <!-- Escape hatch for a provisioned handset whose UI cannot be reached.
+             Exported so an `adb shell am broadcast` (uid 2000) is delivered at
+             all; password-checked before it acts. See DecommissionReceiver. -->
+        <receiver
+            android:name=".DecommissionReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.company.callmonitor.DECOMMISSION" />
+            </intent-filter>
+        </receiver>
 
         <!-- Resume recording the moment the driver turns Location back on.
              PROVIDERS_CHANGED is exempt from the implicit-broadcast ban, so a

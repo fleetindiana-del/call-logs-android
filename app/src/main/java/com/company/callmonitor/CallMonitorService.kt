@@ -267,7 +267,8 @@ class CallMonitorService : Service() {
                 serverUrl, apiKey,
                 status.deviceId, status.employeeName,
                 status.status, status.timestamp,
-                this
+                this,
+                status.reason
             )
             if (success) syncedStatuses.add(status) else failedStatuses.add(status)
         }

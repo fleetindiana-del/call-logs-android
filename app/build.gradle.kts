@@ -10,12 +10,28 @@ plugins {
 //   MAPS_API_KEY=AIza...
 // in local.properties (gitignored), or export it as an env var on CI.
 // Without it the map view renders grey and logs an authorization failure.
-val mapsApiKey: String = run {
-    val props = Properties()
+val localProps: Properties = Properties().apply {
     val file = rootProject.file("local.properties")
-    if (file.exists()) file.inputStream().use { props.load(it) }
-    props.getProperty("MAPS_API_KEY") ?: System.getenv("MAPS_API_KEY") ?: ""
+    if (file.exists()) file.inputStream().use { load(it) }
 }
+
+/** local.properties first, then the environment, so CI can supply the same keys. */
+fun secret(name: String): String? =
+    localProps.getProperty(name) ?: System.getenv(name)
+
+val mapsApiKey: String = secret("MAPS_API_KEY") ?: ""
+
+/**
+ * Release signing. Absent on a machine that has no keystore configured, in which
+ * case the release build stays unsigned rather than failing — but do not ship
+ * that build to a fleet handset.
+ *
+ * Signature identity matters more here than in a normal app: a Device Owner
+ * provisioned handset blocks uninstall, so an APK signed with a *different* key
+ * can never upgrade it. Changing or losing this key costs a factory reset per
+ * phone. See docs/LOCATION-LOCKDOWN.md.
+ */
+val releaseStoreFile: String? = secret("RELEASE_STORE_FILE")
 
 android {
     namespace = "com.company.callmonitor"
@@ -33,6 +49,22 @@ android {
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
     }
 
+    signingConfigs {
+        if (releaseStoreFile != null) {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFile)
+                storePassword = secret("RELEASE_STORE_PASSWORD")
+                keyAlias = secret("RELEASE_KEY_ALIAS")
+                keyPassword = secret("RELEASE_KEY_PASSWORD")
+                // v1 as well as v2/v3: minSdk 24 predates v2-only verification,
+                // and a fleet handset that cannot verify the APK cannot be
+                // upgraded at all once uninstall is blocked.
+                enableV1Signing = true
+                enableV2Signing = true
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -40,6 +72,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
     compileOptions {

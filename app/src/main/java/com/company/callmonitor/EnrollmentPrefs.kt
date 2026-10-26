@@ -28,22 +28,60 @@ object EnrollmentPrefs {
         )
     }
 
+    @Volatile
+    private var cached: SharedPreferences? = null
+
     /**
      * The Keystore master key is device-bound and never leaves the original phone, so a
-     * cloud-restored or otherwise corrupt store cannot be decrypted. Rebuilding it once
-     * turns an unrecoverable crash (or a silently blank deviceToken that surfaces as a
-     * bogus "not enrolled" error) into a clean, honest "re-enroll this device" state.
+     * cloud-restored or otherwise corrupt store genuinely cannot be decrypted, and wiping
+     * it is then the only honest outcome.
+     *
+     * But [build] also fails *transiently* — AndroidKeyStore serialises access and throws
+     * under contention, and this object is read concurrently from BootReceiver, three
+     * WorkManager workers, two foreground services and the UI, often all at once during
+     * the burst right after boot. Treating one such failure as corruption deleted a
+     * perfectly good enrollment and sent the driver back to the sign-in screen for no
+     * reason — the "enrolling again and again" complaint.
+     *
+     * So: memoise the instance (one Keystore unwrap per process, which also removes the
+     * contention), and retry twice before concluding the store is really unreadable.
+     * Deletion is now the last resort it was always meant to be.
      */
-    private fun prefs(context: Context): SharedPreferences = try {
-        build(context)
-    } catch (e: Exception) {
-        Log.w(TAG, "Enrollment store unreadable (${e.javaClass.simpleName}); rebuilding", e)
-        context.deleteSharedPreferences(PREFS_NAME)
-        try {
-            build(context)
+    @Synchronized
+    private fun prefs(context: Context): SharedPreferences {
+        cached?.let { return it }
+
+        val appCtx = context.applicationContext
+        var lastError: Exception? = null
+
+        repeat(3) { attempt ->
+            try {
+                return build(appCtx).also { cached = it }
+            } catch (e: Exception) {
+                lastError = e
+                Log.w(TAG, "Enrollment store open failed (attempt ${attempt + 1}/3): ${e.javaClass.simpleName}")
+                // Brief, growing back-off: Keystore contention clears in milliseconds.
+                try {
+                    Thread.sleep(50L * (attempt + 1))
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return@repeat
+                }
+            }
+        }
+
+        Log.e(
+            TAG,
+            "Enrollment store unreadable after 3 attempts; rebuilding (enrollment will be lost)",
+            lastError
+        )
+        appCtx.deleteSharedPreferences(PREFS_NAME)
+        return try {
+            build(appCtx).also { cached = it }
         } catch (fatal: Exception) {
-            Log.e(TAG, "Enrollment store unrecoverable; using in-memory fallback", fatal)
-            context.getSharedPreferences("${PREFS_NAME}_fallback", Context.MODE_PRIVATE)
+            Log.e(TAG, "Enrollment store unrecoverable; using plaintext fallback", fatal)
+            appCtx.getSharedPreferences("${PREFS_NAME}_fallback", Context.MODE_PRIVATE)
+                .also { cached = it }
         }
     }
 
@@ -88,6 +126,27 @@ object EnrollmentPrefs {
     fun getWebBaseUrl(context: Context): String =
         prefs(context).getString("webBaseUrl", "") ?: ""
 
+    /**
+     * Applies access refreshed from the server (see CapabilityRefresher). A blank
+     * webBaseUrl from the server never wipes a URL that already works.
+     */
+    fun updateAccess(
+        context: Context,
+        capCallMonitoring: Boolean,
+        capLocationTracking: Boolean,
+        capExpenseManagement: Boolean,
+        capShifts: Boolean,
+        webBaseUrl: String
+    ) {
+        val editor = prefs(context).edit()
+            .putBoolean("capCallMonitoring", capCallMonitoring)
+            .putBoolean("capLocationTracking", capLocationTracking)
+            .putBoolean("capExpenseManagement", capExpenseManagement)
+            .putBoolean("capShifts", capShifts)
+        if (webBaseUrl.isNotBlank()) editor.putString("webBaseUrl", webBaseUrl.trimEnd('/'))
+        editor.apply()
+    }
+
     fun getVehicleId(context: Context): String =
         prefs(context).getString("vehicleId", "") ?: ""
 
@@ -103,6 +162,15 @@ object EnrollmentPrefs {
     fun hasExpenseManagement(context: Context): Boolean =
         prefs(context).getBoolean("capExpenseManagement", false)
 
+    /**
+     * Works scheduled shifts. Enrollments saved before this capability existed
+     * have no stored value; for them shifts rode on location tracking, so keep
+     * that behaviour until the driver signs in again.
+     */
+    fun hasShifts(context: Context): Boolean =
+        if (prefs(context).contains("capShifts")) prefs(context).getBoolean("capShifts", false)
+        else hasLocationTracking(context)
+
     fun saveEnrollment(
         context: Context,
         employeeId: String,
@@ -117,7 +185,8 @@ object EnrollmentPrefs {
         vehicleRegistration: String,
         capCallMonitoring: Boolean,
         capLocationTracking: Boolean,
-        capExpenseManagement: Boolean
+        capExpenseManagement: Boolean,
+        capShifts: Boolean
     ) {
         prefs(context).edit()
             .putBoolean("enrolled", true)
@@ -134,6 +203,7 @@ object EnrollmentPrefs {
             .putBoolean("capCallMonitoring", capCallMonitoring)
             .putBoolean("capLocationTracking", capLocationTracking)
             .putBoolean("capExpenseManagement", capExpenseManagement)
+            .putBoolean("capShifts", capShifts)
             .apply()
 
         // Mirror call-monitoring credentials into CallMonitorConfig so the existing
@@ -149,5 +219,6 @@ object EnrollmentPrefs {
 
     fun clear(context: Context) {
         prefs(context).edit().clear().apply()
+        cached = null
     }
 }

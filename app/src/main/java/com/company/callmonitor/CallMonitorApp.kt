@@ -3,7 +3,6 @@ package com.company.callmonitor
 import android.app.Application
 import android.content.Intent
 import android.os.Build
-import com.company.callmonitor.callerlookup.CallerLookupWorker
 import com.google.firebase.messaging.FirebaseMessaging
 
 /**
@@ -16,11 +15,13 @@ class CallMonitorApp : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        // Caller lookup jobs are independent of call-monitoring being toggled on.
-        // Poll once on every process start to recover missed FCM or interrupted work.
+        // Before anything else recovers: the shift gate decides whether any of it
+        // is allowed to record, and its notification has to survive the kill that
+        // ended the previous process.
+        ShiftManager.ensureInitialised(this)
+        ShiftNotifier.sync(this)
+
         if (EnrollmentPrefs.isEnrolled(this)) {
-            CallerLookupWorker.enqueuePending(this)
-            CallerLookupWorker.schedulePeriodicPoll(this)
             registerFcmTokenForEnrollment(this)
         }
 
@@ -30,8 +31,22 @@ class CallMonitorApp : Application() {
         // nothing in that path resumed tracking.
         if (EnrollmentPrefs.hasLocationTracking(this)) {
             com.company.callmonitor.location.LocationWatchdogWorker.schedule(this)
+            // Order matters: read the previous liveness stamp before anything below
+            // refreshes it, then let housekeeping run (schedule end, queued events).
+            ShiftEventReporter.onProcessStart(this)
+            if (ShiftManager.isOn(this)) ShiftHousekeepingWorker.schedule(this)
+            ShiftEventReporter.tick(this)
             Thread {
                 try {
+                    // Re-assert the Location lockdown before starting anything. On a
+                    // managed handset this is what stops the driver reaching the
+                    // toggle at all; it is re-applied on every process start so a
+                    // policy dropped by a system update repairs itself instead of
+                    // silently leaving the phone unlocked.
+                    com.company.callmonitor.location.LocationPolicyManager.apply(this)
+                    // Close or open an outage left dangling by the kill that ended
+                    // the previous process.
+                    com.company.callmonitor.location.LocationGate.reconcile(this)
                     com.company.callmonitor.location.LocationDutyController
                         .ensureAlwaysActive(this, "cold_start")
                 } catch (e: Exception) {

@@ -52,6 +52,24 @@ class LocationTrackingService : Service() {
             }
 
             val sid = sessionId ?: return
+
+            // Last line of the shift gate. The service is stopped when the shift
+            // ends, but a stop that loses a race with an in-flight batch, or a
+            // system-restarted instance, must still not write a point the user
+            // did not consent to.
+            if (!com.company.callmonitor.ShiftManager.isOn(applicationContext)) {
+                android.util.Log.i(TAG, "fixes dropped: shift is OFF")
+                return
+            }
+
+            // The shift trail's liveness stamp, last known location, and the proof
+            // that closes an open interruption. Only reached while the shift is on.
+            locations.lastOrNull()?.let {
+                com.company.callmonitor.ShiftEventReporter.noteFix(
+                    applicationContext, it.latitude, it.longitude, it.accuracy, it.time
+                )
+            }
+
             val deviceId = EnrollmentPrefs.getDeviceId(applicationContext)
             val battery = currentBatteryPercent()
 
@@ -211,6 +229,10 @@ class LocationTrackingService : Service() {
         if (sessionId == null) return
         val now = SystemClock.elapsedRealtime()
 
+        // Shift housekeeping rides on this loop: liveness stamp, schedule end,
+        // connectivity reconcile, and delivery of queued shift events. Non-blocking.
+        com.company.callmonitor.ShiftEventReporter.tick(applicationContext)
+
         reportHeartbeat(now)
 
         // The phone's own location switch going off is not something another
@@ -235,6 +257,16 @@ class LocationTrackingService : Service() {
             applicationContext,
             "📍 no fixes for ${(now - reference) / 1000}s — re-subscribing (attempt $silentCycles)"
         )
+        // Location and permission are fine (checked above), so this is not
+        // "GPS off": report it as its own cause. The next fix closes it.
+        if (silentCycles == 1) {
+            com.company.callmonitor.ShiftEventReporter.interruptTracking(
+                applicationContext,
+                cause = com.company.callmonitor.ShiftEventReporter.CAUSE_NO_LOCATION_FIX,
+                reason = "Location is on and allowed, but the phone is not getting a GPS fix.",
+                evidence = "No location fix for ${(now - reference) / 1000}s."
+            )
+        }
         startLocationUpdates()
 
         // Re-subscribing is the cheap fix and usually works. When it has not
@@ -248,6 +280,12 @@ class LocationTrackingService : Service() {
                 "📍 provider dead after $silentCycles re-subscribes — restarting service"
             )
             silentCycles = 0
+            com.company.callmonitor.ShiftEventReporter.interruptTracking(
+                applicationContext,
+                cause = com.company.callmonitor.ShiftEventReporter.CAUSE_TRACKING_SERVICE_STOPPED,
+                reason = "The location provider stopped delivering fixes and the tracking service had to be restarted.",
+                evidence = "No location fix for ${(now - reference) / 1000}s despite $MAX_SILENT_CYCLES re-subscribe attempts."
+            )
             LocationDutyController.requestRestart(applicationContext, "provider_dead")
         }
     }
@@ -328,6 +366,8 @@ class LocationTrackingService : Service() {
         fusedClient = LocationServices.getFusedLocationProviderClient(this)
         current = this
         isRunning = true
+        // Records internet loss as its own event, never as a tracking failure.
+        com.company.callmonitor.ConnectivityMonitor.start(applicationContext)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -506,6 +546,7 @@ class LocationTrackingService : Service() {
         isRunning = false
         if (current === this) current = null
         watchdogHandler.removeCallbacks(watchdog)
+        com.company.callmonitor.ConnectivityMonitor.stop(applicationContext)
         try {
             fusedClient.removeLocationUpdates(locationCallback)
         } catch (e: Exception) {

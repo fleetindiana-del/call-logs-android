@@ -144,15 +144,19 @@ class LocationQualityFilter(
         // as movement.
         val moving = fix.hasSpeed && fix.speedMetersPerSecond >= movingSpeedMps
         if (!moving && distanceM < max(minMoveM, fix.accuracyMeters)) {
-            // Occasional keepalive so a long stop still refreshes "last seen",
-            // and only from a tight fix so it cannot drag the trail around.
-            val heartbeat = dtMs >= STATIONARY_HEARTBEAT_MS &&
-                fix.accuracyMeters <= HEARTBEAT_ACCURACY_M
-            return if (heartbeat) {
-                Decision(true, true, "heartbeat")
-            } else {
-                Decision(false, false, "stationary=${distanceM.toInt()}m")
-            }
+            // A parked vehicle records nothing at all.
+            //
+            // This used to let one "keepalive" fix through every five minutes so
+            // that a long stop still refreshed last-seen. It was the only signal
+            // the server had that a phone was alive, and it cost a fabricated
+            // position: the device went Live again every five minutes without
+            // moving, and each keepalive landed a few metres off the last one —
+            // measured at ~29 m of invented travel per parked hour on a real
+            // device, with the anchor walking along behind it, since an accepted
+            // heartbeat also committed itself as the new reference point.
+            // LocationApiClient.heartbeat now reports
+            // liveness directly, so the position no longer has to carry it.
+            return Decision(false, false, "stationary=${distanceM.toInt()}m")
         }
 
         return Decision(true, true, "moving=${distanceM.toInt()}m")
@@ -182,8 +186,6 @@ class LocationQualityFilter(
         const val MAX_FIX_AGE_MS = 60_000L
         const val GAP_RESET_MS = 120_000L
         const val MAX_CONSECUTIVE_OUTLIERS = 5
-        const val STATIONARY_HEARTBEAT_MS = 5 * 60_000L
-        const val HEARTBEAT_ACCURACY_M = 25f
 
         private const val EARTH_RADIUS_M = 6_371_000.0
 

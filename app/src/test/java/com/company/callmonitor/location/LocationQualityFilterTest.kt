@@ -93,12 +93,31 @@ class LocationQualityFilterTest {
     }
 
     @Test
-    fun stationaryHeartbeatKeepsDeviceAlive() {
+    fun aLongStopRecordsNothing() {
         val filter = LocationQualityFilter()
         filter.push(fix(timeMs = 0))
+        // Six minutes later, 4 m away, on a tight fix: still parked. This used
+        // to be accepted as a keepalive, which made the vehicle look like it had
+        // set off again every five minutes. Liveness is a heartbeat's job now.
         val d = filter.push(fix(lat = north(4.0), accuracy = 10f, timeMs = 6 * 60_000L))
-        assertTrue("a long stop still refreshes last-seen", d.accept)
-        assertEquals("heartbeat", d.reason)
+        assertFalse("a stop must not invent a position", d.accept)
+    }
+
+    @Test
+    fun anHourParkedProducesNoPoints() {
+        val filter = LocationQualityFilter()
+        filter.push(fix(timeMs = 0))
+        // One tight fix per 5 minutes, wandering inside the error radius —
+        // exactly the pattern seen from a parked phone on the fleet map.
+        var accepted = 0
+        for (i in 1..12) {
+            val wobble = if (i % 2 == 0) 5.0 else -4.0
+            val d = filter.push(
+                fix(lat = north(wobble), accuracy = 12f, timeMs = i * 5 * 60_000L)
+            )
+            if (d.accept) accepted++
+        }
+        assertEquals("a parked hour should draw no trail", 0, accepted)
     }
 
     @Test
@@ -111,11 +130,15 @@ class LocationQualityFilterTest {
     }
 
     @Test
-    fun heartbeatRequiresATightFix() {
+    fun pullingAwayAfterALongStopIsKept() {
         val filter = LocationQualityFilter()
         filter.push(fix(timeMs = 0))
-        val d = filter.push(fix(lat = north(4.0), accuracy = 30f, timeMs = 6 * 60_000L))
-        assertFalse(d.accept)
+        // The first fix after a stop is what ends the idle period in Route
+        // History, so dropping standstill noise must not drop this too.
+        val d = filter.push(
+            fix(lat = north(40.0), accuracy = 10f, speed = 8f, timeMs = 6 * 60_000L)
+        )
+        assertTrue("movement after a stop must still register", d.accept)
     }
 
     @Test

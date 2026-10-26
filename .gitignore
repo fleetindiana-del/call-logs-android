@@ -25,3 +25,10 @@ local.properties
 
 # Firebase config contains a live API key - keep out of public repo
 /app/google-services.json
+
+# Release signing key. Committing this would let anyone ship an update to
+# every provisioned handset, which on a Device Owner fleet means anyone could
+# push code that holds the Location lock. Back it up out of band instead.
+/keystore/
+*.jks
+*.keystore

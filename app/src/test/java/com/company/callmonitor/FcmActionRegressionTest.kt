@@ -6,7 +6,7 @@ import org.junit.Test
 
 /**
  * Documents protected FCM action contract for call sync.
- * GPS and caller-lookup must use separate actions, never overload sync_now.
+ * GPS must use separate actions, never overload sync_now.
  */
 class FcmActionRegressionTest {
 
@@ -26,16 +26,6 @@ class FcmActionRegressionTest {
             "location_stop_tracking"
         )
         assertTrue(CALL_SYNC_FCM_ACTION !in locationActions)
-    }
-
-    @Test
-    fun callerLookupActions_areIsolatedFromCallSync() {
-        val callerLookupActions = setOf(
-            "caller_lookup_start",
-            "caller_lookup_resume",
-            "caller_lookup_control"
-        )
-        assertTrue(CALL_SYNC_FCM_ACTION !in callerLookupActions)
     }
 
     companion object {

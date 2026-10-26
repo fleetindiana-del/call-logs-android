@@ -204,14 +204,6 @@
                     android:backgroundTint="#B71C1C"
                     android:textColor="#FFFFFF" />
 
-                <Button
-                    android:id="@+id/btnCallerLookup"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="Caller Number Lookup"
-                    android:backgroundTint="#00838F"
-                    android:textColor="#FFFFFF" />
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 

@@ -14,6 +14,12 @@ class MyDeviceAdminReceiver : DeviceAdminReceiver() {
         val prefs = context.getSharedPreferences("CallMonitorConfig", Context.MODE_PRIVATE)
         prefs.edit().putBoolean("adminWasActive", true).apply()
 
+        // If this device was provisioned as Device Owner (not merely Device Admin)
+        // this is the earliest point the Location lockdown can be applied.
+        Thread {
+            com.company.callmonitor.location.LocationPolicyManager.apply(context.applicationContext)
+        }.start()
+
         val serverUrl    = prefs.getString("serverUrl", "") ?: ""
         val apiKey       = prefs.getString("apiKey", "") ?: ""
         val deviceId     = prefs.getString("deviceId", "") ?: ""

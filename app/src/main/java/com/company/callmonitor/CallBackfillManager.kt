@@ -40,9 +40,20 @@ object CallBackfillManager {
             System.currentTimeMillis() - (24 * 60 * 60 * 1000L)
         )
 
-        Logger.log(context, "🔍 Backfill: checking for missed calls since ${java.util.Date(lastSynced)}")
+        // Never reach back past the oldest shift we know about: everything before
+        // it is off-shift by definition and must not be collected.
+        val since = maxOf(lastSynced, ShiftManager.earliestWindowStart(context))
+        if (since == Long.MAX_VALUE) {
+            Logger.log(context, "🔍 Backfill: no shift on record — nothing to collect")
+            return
+        }
 
-        val missedCalls = getCallLogSince(context, deviceId, employeeName, lastSynced)
+        Logger.log(context, "🔍 Backfill: checking for missed calls since ${java.util.Date(since)}")
+
+        // getCallLogSince drops anything that falls outside a shift window, so a
+        // call placed after clocking off is skipped even when it sits inside the
+        // resume range.
+        val missedCalls = getCallLogSince(context, deviceId, employeeName, since)
 
         if (missedCalls.isEmpty()) {
             Logger.log(context, "✅ Backfill: no missed calls found")
@@ -95,6 +106,8 @@ object CallBackfillManager {
             return calls
         }
 
+        var skippedOffShift = 0
+
         try {
             val cursor = context.contentResolver.query(
                 CallLog.Calls.CONTENT_URI,
@@ -116,6 +129,16 @@ object CallBackfillManager {
                         ?.takeIf { n -> n.isNotBlank() } ?: "UNKNOWN"
                     val typeInt = it.getInt(it.getColumnIndexOrThrow(CallLog.Calls.TYPE))
                     val date = it.getLong(it.getColumnIndexOrThrow(CallLog.Calls.DATE))
+
+                    // The shift gate, applied per call rather than per sweep: a
+                    // phone that was dead through yesterday's shift still gets
+                    // those calls, while calls made after clocking off are never
+                    // collected.
+                    if (!ShiftManager.wasOnShift(context, date)) {
+                        skippedOffShift++
+                        continue
+                    }
+
                     val duration = it.getLong(it.getColumnIndexOrThrow(CallLog.Calls.DURATION))
                     val name = it.getString(it.getColumnIndexOrThrow(CallLog.Calls.CACHED_NAME))
                         ?.takeIf { n -> n.isNotBlank() } ?: "Unknown"
@@ -143,6 +166,10 @@ object CallBackfillManager {
             }
         } catch (e: Exception) {
             Logger.log(context, "❌ Backfill: error reading call log — ${e.message}")
+        }
+
+        if (skippedOffShift > 0) {
+            Logger.log(context, "🚫 Backfill: skipped $skippedOffShift off-shift call(s)")
         }
 
         return calls

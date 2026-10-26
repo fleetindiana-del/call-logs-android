@@ -6,10 +6,8 @@ import android.content.Context
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.ExistingWorkPolicy
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
-import com.company.callmonitor.callerlookup.CallerLookupWorker
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
@@ -65,29 +63,6 @@ class CallMonitorFirebaseMessagingService : FirebaseMessagingService() {
             "location_live_mode" -> handleLocationFcm(action, message.data)
             "location_stop_live_mode" -> handleLocationFcm(action, message.data)
             "location_start_tracking", "location_stop_tracking" -> handleLocationFcm(action, message.data)
-            "caller_lookup_start", "caller_lookup_resume" -> {
-                val jobId = message.data["jobId"].orEmpty()
-                if (jobId.isNotBlank()) {
-                    CallerLookupWorker.enqueue(applicationContext, jobId)
-                    Logger.log(applicationContext, "🔎 FCM: enqueued Android caller lookup $jobId")
-                } else {
-                    CallerLookupWorker.enqueuePending(applicationContext)
-                }
-            }
-            "caller_lookup_control" -> {
-                val jobId = message.data["jobId"].orEmpty()
-                if (jobId.isNotBlank()) {
-                    // Replace wakes/cancels a possibly blocked worker so it immediately
-                    // fetches and acknowledges pause/stop from the backend.
-                    CallerLookupWorker.enqueue(
-                        applicationContext,
-                        jobId,
-                        ExistingWorkPolicy.REPLACE
-                    )
-                } else {
-                    CallerLookupWorker.enqueuePending(applicationContext)
-                }
-            }
         }
     }
 
@@ -148,6 +123,14 @@ class CallMonitorFirebaseMessagingService : FirebaseMessagingService() {
                 Logger.log(applicationContext, "📍 FCM: enqueued LocationUploadWorker (action=$action)")
             }
             "location_live_mode" -> {
+                // Live position is collection, so the shift gate applies to it
+                // exactly as it does to route recording. Refused outright rather
+                // than armed for later, so the flag cannot sit true waiting to
+                // take effect the moment the next shift starts.
+                if (!ShiftManager.isOn(applicationContext)) {
+                    Logger.log(applicationContext, "📍 FCM: live mode refused — shift is OFF")
+                    return
+                }
                 applicationContext.getSharedPreferences("location_prefs", android.content.Context.MODE_PRIVATE)
                     .edit().putBoolean("liveMode", true).apply()
                 // Live denser sampling only helps if the service is already recording.

@@ -9,15 +9,27 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import com.company.callmonitor.callerlookup.CallerLookupWorker
 import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 
+/**
+ * Device sign-in.
+ *
+ * Was an admin-issued, single-use enrollment code. That meant every
+ * re-enrollment — a reinstall, a factory reset, cleared app data, a keystore the
+ * phone could no longer decrypt — stranded the driver until an admin minted a
+ * fresh code. Credentials are re-usable, so the driver now recovers unaided,
+ * which is the entire reason for the change.
+ *
+ * The server keeps `/api/enrollment/redeem` for devices already enrolled that
+ * way; nothing here breaks them.
+ */
 class EnrollmentActivity : AppCompatActivity() {
 
-    private lateinit var etEnrollmentCode: EditText
+    private lateinit var etUsername: EditText
+    private lateinit var etPassword: EditText
     private lateinit var etServerUrl: EditText
     private lateinit var btnEnroll: Button
     private lateinit var tvEnrollStatus: TextView
@@ -26,7 +38,8 @@ class EnrollmentActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_enrollment)
 
-        etEnrollmentCode = findViewById(R.id.etEnrollmentCode)
+        etUsername = findViewById(R.id.etUsername)
+        etPassword = findViewById(R.id.etPassword)
         etServerUrl = findViewById(R.id.etServerUrl)
         btnEnroll = findViewById(R.id.btnEnroll)
         tvEnrollStatus = findViewById(R.id.tvEnrollStatus)
@@ -40,31 +53,56 @@ class EnrollmentActivity : AppCompatActivity() {
             savedServer
         etServerUrl.setText(defaultServer)
 
-        btnEnroll.setOnClickListener {
-            val code = etEnrollmentCode.text.toString().trim()
-            val server = etServerUrl.text.toString().trim()
-            if (code.isBlank()) {
-                Toast.makeText(this, "Please enter an enrollment code", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            if (server.isBlank()) {
-                Toast.makeText(this, "Please enter the server URL", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            performEnrollment(code, server)
+        val advanced = findViewById<android.view.View>(R.id.layoutAdvanced)
+        findViewById<TextView>(R.id.tvToggleAdvanced).setOnClickListener {
+            advanced.visibility =
+                if (advanced.visibility == android.view.View.VISIBLE) android.view.View.GONE
+                else android.view.View.VISIBLE
+        }
+
+        btnEnroll.setOnClickListener { submit() }
+
+        // Enter on the password field signs in, so the driver never has to find
+        // the button behind the keyboard.
+        etPassword.setOnEditorActionListener { _, _, _ ->
+            submit()
+            true
         }
     }
 
-    private fun performEnrollment(code: String, server: String) {
+    private fun submit() {
+        val username = etUsername.text.toString().trim()
+        // Not trimmed: a trailing space may genuinely be part of a password, and
+        // silently altering it produces an "incorrect password" no one can explain.
+        val password = etPassword.text.toString()
+        val server = etServerUrl.text.toString().trim()
+
+        if (username.isBlank()) {
+            Toast.makeText(this, "Please enter your username", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (password.isBlank()) {
+            Toast.makeText(this, "Please enter your password", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (server.isBlank()) {
+            Toast.makeText(this, "Please enter the server URL", Toast.LENGTH_SHORT).show()
+            return
+        }
+        performLogin(username, password, server)
+    }
+
+    private fun performLogin(username: String, password: String, server: String) {
         btnEnroll.isEnabled = false
-        tvEnrollStatus.text = "Enrolling…"
+        tvEnrollStatus.setTextColor(android.graphics.Color.parseColor("#555555"))
+        tvEnrollStatus.text = "Signing in…"
 
         val deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
             ?: "UNKNOWN"
 
         Thread {
             try {
-                val url = URL("${server.trimEnd('/')}/api/enrollment/redeem")
+                val url = URL("${server.trimEnd('/')}/api/enrollment/login")
                 val conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "POST"
                 conn.setRequestProperty("Content-Type", "application/json")
@@ -73,7 +111,8 @@ class EnrollmentActivity : AppCompatActivity() {
                 conn.readTimeout = 15_000
 
                 val body = JSONObject().apply {
-                    put("code", code)
+                    put("username", username)
+                    put("password", password)
                     put("deviceId", deviceId)
                 }.toString()
 
@@ -92,18 +131,25 @@ class EnrollmentActivity : AppCompatActivity() {
                     handleSuccess(json, server, deviceId)
                 } else {
                     val msg = try {
-                        JSONObject(responseBody).optString("error", "Enrollment failed ($responseCode)")
+                        JSONObject(responseBody).optString("error", "Sign-in failed ($responseCode)")
                     } catch (_: Exception) {
-                        "Enrollment failed ($responseCode)"
+                        // A 404 here almost always means the backend predates the
+                        // login endpoint, which is worth saying rather than
+                        // leaving the driver staring at a bare status code.
+                        if (responseCode == 404)
+                            "This server does not support sign-in yet — ask your administrator to update it."
+                        else "Sign-in failed ($responseCode)"
                     }
                     runOnUiThread {
+                        tvEnrollStatus.setTextColor(android.graphics.Color.parseColor("#C62828"))
                         tvEnrollStatus.text = msg
                         btnEnroll.isEnabled = true
                     }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    tvEnrollStatus.text = "Error: ${e.message}"
+                    tvEnrollStatus.setTextColor(android.graphics.Color.parseColor("#C62828"))
+                    tvEnrollStatus.text = "Could not reach the server: ${e.message}"
                     btnEnroll.isEnabled = true
                 }
             }
@@ -125,14 +171,16 @@ class EnrollmentActivity : AppCompatActivity() {
 
         if (deviceToken.isBlank()) {
             runOnUiThread {
-                tvEnrollStatus.text = "Enrollment error: server returned no device token"
+                tvEnrollStatus.setTextColor(android.graphics.Color.parseColor("#C62828"))
+                tvEnrollStatus.text = "Sign-in error: server returned no device token"
                 btnEnroll.isEnabled = true
             }
             return
         }
         if (serverUrl.isBlank()) {
             runOnUiThread {
-                tvEnrollStatus.text = "Enrollment error: missing server URL"
+                tvEnrollStatus.setTextColor(android.graphics.Color.parseColor("#C62828"))
+                tvEnrollStatus.text = "Sign-in error: missing server URL"
                 btnEnroll.isEnabled = true
             }
             return
@@ -146,6 +194,8 @@ class EnrollmentActivity : AppCompatActivity() {
         val capCallMonitoring = caps?.optBoolean("callMonitoring", false) ?: false
         val capLocationTracking = caps?.optBoolean("locationTracking", false) ?: false
         val capExpenseManagement = caps?.optBoolean("expenseManagement", false) ?: false
+        // Older servers don't send `shifts`; there, scheduled shifts rode on location tracking.
+        val capShifts = if (caps?.has("shifts") == true) caps.optBoolean("shifts", false) else capLocationTracking
 
         EnrollmentPrefs.saveEnrollment(
             this,
@@ -161,7 +211,8 @@ class EnrollmentActivity : AppCompatActivity() {
             vehicleRegistration = vehicleRegistration,
             capCallMonitoring = capCallMonitoring,
             capLocationTracking = capLocationTracking,
-            capExpenseManagement = capExpenseManagement
+            capExpenseManagement = capExpenseManagement,
+            capShifts = capShifts
         )
         // Seed the Contact Bank for this employee. Best-effort: if READ_CONTACTS has not
         // been granted yet, CallMonitorService's daily check picks it up once it is.
@@ -169,8 +220,6 @@ class EnrollmentActivity : AppCompatActivity() {
             val appCtx = applicationContext
             Thread { ContactSyncManager.syncNow(appCtx) }.start()
         }
-        CallerLookupWorker.enqueuePending(this)
-        CallerLookupWorker.schedulePeriodicPoll(this)
         CallMonitorApp.registerFcmTokenForEnrollment(this)
 
         // Best-effort: appear on fleet-map immediately after enroll.
@@ -189,7 +238,8 @@ class EnrollmentActivity : AppCompatActivity() {
         }
 
         runOnUiThread {
-            tvEnrollStatus.text = "Enrolled successfully!"
+            tvEnrollStatus.setTextColor(android.graphics.Color.parseColor("#2E7D32"))
+            tvEnrollStatus.text = "Signed in — setting up…"
             navigateHome(role)
         }
     }

@@ -32,6 +32,68 @@
             android:textColor="#555555"
             android:layout_marginBottom="8dp" />
 
+        <!-- Shift gate: nothing is recorded while this is off -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#FFFFFF"
+            android:padding="16dp"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="SHIFT"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textAllCaps="true"
+                android:letterSpacing="0.1"
+                android:textColor="#1A1A1A" />
+
+            <!-- Which shift, and its scheduled hours -->
+            <TextView
+                android:id="@+id/tvShiftName"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="—"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:textColor="#1A1A1A"
+                android:layout_marginTop="6dp" />
+
+            <!-- Status and running duration -->
+            <TextView
+                android:id="@+id/tvShiftStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="OFF SHIFT"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="#B71C1C"
+                android:layout_marginTop="4dp" />
+
+            <Button
+                android:id="@+id/btnShift"
+                android:layout_width="match_parent"
+                android:layout_height="60dp"
+                android:text="Shift On"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#2E7D32"
+                android:layout_marginTop="12dp" />
+
+            <TextView
+                android:id="@+id/tvShiftHint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Tap Shift On to start your shift."
+                android:textSize="13sp"
+                android:textColor="#777777"
+                android:layout_marginTop="8dp" />
+        </LinearLayout>
+
         <TextView
             android:id="@+id/tvTrackingStatus"
             android:layout_width="match_parent"
@@ -55,12 +117,25 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="EXPENSES"
+            android:text="WALLET"
             android:textSize="11sp"
             android:textAllCaps="true"
             android:textColor="#888888"
             android:letterSpacing="0.1"
             android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvWalletBalance"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Wallet balance: …"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:textColor="#1B5E20"
+            android:gravity="center"
+            android:background="#FFFFFF"
+            android:padding="16dp"
+            android:layout_marginBottom="12dp" />
 
         <Button
             android:id="@+id/btnAddExpense"
@@ -93,16 +168,6 @@
             android:gravity="center"
             android:padding="12dp"
             android:layout_marginBottom="8dp" />
-
-        <Button
-            android:id="@+id/btnCallerLookup"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:text="Caller Number Lookup"
-            android:textSize="15sp"
-            android:backgroundTint="#00838F"
-            android:textColor="#FFFFFF"
-            android:layout_marginBottom="12dp" />
 
         <TextView
             android:id="@+id/btnLocationStatus"

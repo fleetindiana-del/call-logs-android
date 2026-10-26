@@ -12,6 +12,9 @@ import com.company.callmonitor.Logger
  *
  * [trackingDesired] defaults true (always active). Website End clears it so boot/home
  * do not immediately restart until website Start (or driver opens after Start FCM).
+ *
+ * All of that sits *inside* the shift gate: [ShiftManager] outranks every caller
+ * here, and while the user is off shift [startTracking] refuses unconditionally.
  */
 object LocationDutyController {
 
@@ -48,6 +51,15 @@ object LocationDutyController {
             return false
         }
 
+        // The shift gate outranks every other caller — boot, watchdog, FCM from
+        // the website, the home screen. While the user is off shift no location
+        // history and no live position is collected, full stop. The one exception
+        // is the shift itself turning on, which is what opens the gate.
+        if (!com.company.callmonitor.ShiftManager.isOn(context)) {
+            Logger.log(context, "📍 skip start ($reason): shift is OFF")
+            return false
+        }
+
         setTrackingDesired(context, true)
 
         val appCtx = context.applicationContext
@@ -59,6 +71,11 @@ object LocationDutyController {
         // someone pushed a command from the dashboard.
         LocationWatchdogWorker.schedule(appCtx)
         com.company.callmonitor.MonitoringAlarmScheduler.ensureAlarmChain(appCtx)
+
+        // Re-assert the lockdown on every start attempt. On a managed handset this
+        // both re-restricts the toggle and puts Location back on, so the gate
+        // below is frequently satisfied by the time we reach it.
+        LocationPolicyManager.apply(appCtx)
 
         if (!hasLocationPermission(context) || !LocationEnvironment.isLocationEnabled(appCtx)) {
             val blocked = LocationEnvironment.trackingStatus(appCtx)
@@ -147,6 +164,20 @@ object LocationDutyController {
     @JvmStatic
     fun stopTracking(context: Context, reason: String = "manual"): Boolean {
         val appCtx = context.applicationContext
+
+        // A stop while the shift is still ON did not come from the driver ending
+        // their shift (that clears the shift flag first). Whatever asked for it —
+        // the dashboard, a poll, a local admin screen — the shift trail must record
+        // that tracking stopped rather than leave a driver looking on shift with
+        // nothing being tracked. Only the source is stated, never a motive. The
+        // shift then ends by the normal rule if tracking is not restored.
+        if (com.company.callmonitor.ShiftManager.isOn(appCtx)) {
+            com.company.callmonitor.ShiftEventReporter.interruptTracking(
+                appCtx,
+                cause = com.company.callmonitor.ShiftEventReporter.CAUSE_UNKNOWN,
+                reason = "Tracking was stopped (source: $reason) while the shift was still on."
+            )
+        }
         setTrackingDesired(appCtx, false)
 
         val prefs = appCtx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

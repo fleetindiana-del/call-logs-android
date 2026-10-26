@@ -32,7 +32,6 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
-import com.company.callmonitor.callerlookup.CallerLookupActivity
 import com.company.callmonitor.location.LocationDutyController
 import com.company.callmonitor.location.LocationTrackingService
 
@@ -52,7 +51,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnClearLogs: Button
     private lateinit var btnSave: Button
     private lateinit var btnTest: Button
-    private lateinit var btnCallerLookup: Button
 
     // Guards against re-entrant listener calls when we programmatically flip the switch.
     private var suppressToggleListener = false
@@ -120,7 +118,6 @@ class MainActivity : AppCompatActivity() {
         btnClearLogs = findViewById(R.id.btnClearLogs)
         btnSave = findViewById(R.id.btnSave)
         btnTest = findViewById(R.id.btnTest)
-        btnCallerLookup = findViewById(R.id.btnCallerLookup)
 
         // Let the logs pane scroll: outer NestedScrollView must not steal vertical drags
         findViewById<ScrollView>(R.id.scrollLogs)?.setOnTouchListener { v, event ->
@@ -135,6 +132,15 @@ class MainActivity : AppCompatActivity() {
 
         loadConfig()
         refreshLogs()
+
+        // Decommissioning is deliberately hard to reach and hard to do by
+        // accident: a long-press on the status line, behind a second password.
+        // It is the only way off a provisioned handset short of a factory reset,
+        // so it must exist — but a driver who found it could unlock their phone.
+        tvLocationStatus.setOnLongClickListener {
+            confirmDecommission()
+            true
+        }
 
         btnRefreshLogs.setOnClickListener {
             refreshLogs()
@@ -158,10 +164,6 @@ class MainActivity : AppCompatActivity() {
 
         btnTest.setOnClickListener {
             testConnection()
-        }
-
-        btnCallerLookup.setOnClickListener {
-            startActivity(Intent(this, CallerLookupActivity::class.java))
         }
 
         updateStatusText()
@@ -349,11 +351,15 @@ class MainActivity : AppCompatActivity() {
             }
             runOnUiThread {
                 if (enable && !ok) {
-                    Toast.makeText(
-                        this,
-                        "Could not start location tracking — check capability and permissions.",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    // Naming the shift explicitly: from this screen a refusal
+                    // looks like a permissions fault, and a technician would
+                    // hunt for one that is not there.
+                    val message = if (!ShiftManager.isOn(this)) {
+                        "Shift is OFF — tracking cannot start until the user turns their shift on."
+                    } else {
+                        "Could not start location tracking — check capability and permissions."
+                    }
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                 }
                 refreshLocationTrackingUi()
                 refreshLogs()
@@ -390,7 +396,17 @@ class MainActivity : AppCompatActivity() {
             else ->
                 "Status: Tracking ON — starting service…" to "#EF6C00"
         }
-        tvLocationStatus.text = text
+        // Whether this handset's Location toggle is actually locked is the one
+        // thing an admin cannot determine by looking at the phone — a restricted
+        // toggle and an untouched one look identical until someone taps it.
+        val policy = com.company.callmonitor.location.LocationPolicyManager.statusLabel(this)
+        val outage = com.company.callmonitor.location.LocationGate.totalOffMillis(this)
+        val outageLine = if (outage >= 60_000) {
+            "\nLocation off this shift: ${com.company.callmonitor.location.LocationGate.formatDuration(outage)}" +
+                " over ${com.company.callmonitor.location.LocationGate.outageCount(this)} outage(s)"
+        } else ""
+
+        tvLocationStatus.text = "$text\n$policy$outageLine"
         tvLocationStatus.setTextColor(Color.parseColor(color))
     }
 
@@ -509,7 +525,7 @@ class MainActivity : AppCompatActivity() {
         dialog.setOnShowListener {
             val button = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
             button.setOnClickListener {
-                if (input.text.toString() == "indiana@132") {
+                if (AdminAuth.matches(input.text.toString())) {
                     val contentView = findViewById<android.view.ViewGroup>(android.R.id.content)
                     contentView.setBackgroundColor(android.graphics.Color.WHITE)
                     contentView.getChildAt(0)?.visibility = android.view.View.VISIBLE
@@ -517,6 +533,61 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     Toast.makeText(this, "Incorrect Password", Toast.LENGTH_SHORT).show()
                 }
+            }
+        }
+        dialog.show()
+    }
+
+    /**
+     * Release Device Owner on this handset, after a password and an explicit
+     * confirmation naming what is lost. Irreversible from the phone: re-locking
+     * it needs a machine, a cable and `dpm set-device-owner` again.
+     */
+    private fun confirmDecommission() {
+        if (!com.company.callmonitor.location.LocationPolicyManager.isDeviceOwner(this)) {
+            Toast.makeText(this, "This handset is not managed — nothing to release.",
+                Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val input = EditText(this)
+        input.inputType = android.text.InputType.TYPE_CLASS_TEXT or
+            android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        input.hint = "Enter Password"
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Release this device?")
+            .setMessage(
+                "The Location toggle will be handed back to the driver, uninstall " +
+                    "protection is removed, and this app stops being Device Owner.\n\n" +
+                    "Re-locking the phone requires provisioning it again over USB."
+            )
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Release", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                if (!AdminAuth.matches(input.text.toString())) {
+                    Toast.makeText(this, "Incorrect Password", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                dialog.dismiss()
+                Thread {
+                    val ok = com.company.callmonitor.location
+                        .LocationPolicyManager.decommission(this)
+                    runOnUiThread {
+                        Toast.makeText(
+                            this,
+                            if (ok) "Device released — no longer managed"
+                            else "Could not release device owner — see logs",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        refreshLocationTrackingUi()
+                        refreshLogs()
+                    }
+                }.start()
             }
         }
         dialog.show()

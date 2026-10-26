@@ -42,10 +42,24 @@ class LocationProviderChangedReceiver : BroadcastReceiver() {
             try {
                 if (enabled) {
                     Logger.log(appCtx, "📍 location switched on — resuming tracking")
+                    LocationGate.onLocationOn(appCtx)
                     LocationHealthNotifier.clear(appCtx)
                     LocationDutyController.startTracking(appCtx, "location_enabled")
                 } else {
+                    // On a managed handset the toggle is restricted and should not
+                    // have moved at all; if something moved it anyway, undo it here
+                    // rather than settling for a warning. This is the second line
+                    // of defence behind LocationPolicyManager.apply().
+                    if (LocationPolicyManager.forceLocationOn(appCtx)) {
+                        // Undone. The re-enable fires its own PROVIDERS_CHANGED,
+                        // which takes the resume branch above, so there is nothing
+                        // to report and no outage to open.
+                        prefs.edit().putBoolean(KEY_LAST_ENABLED, true).apply()
+                        return@Thread
+                    }
+
                     Logger.log(appCtx, "📍 location switched off — route recording paused")
+                    LocationGate.onLocationOff(appCtx)
                     LocationHealthNotifier.update(appCtx)
                     LocationDutyController.reportState(appCtx, LocationEnvironment.STATUS_GPS_OFF)
                 }

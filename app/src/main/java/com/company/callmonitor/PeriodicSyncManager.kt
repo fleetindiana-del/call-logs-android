@@ -32,8 +32,16 @@ object PeriodicSyncManager {
         if (serverUrl.isEmpty() || deviceId.isEmpty()) return
 
         // ── Window: start of yesterday 00:00:00 → now ─────────────────────────
-        val windowStart = startOfYesterday()
+        // Clamped to the oldest shift on record; readCallLog then drops anything
+        // inside the window that falls outside a shift, so off-shift calls are
+        // never collected even though the sweep itself still runs.
+        val windowStart = maxOf(startOfYesterday(), ShiftManager.earliestWindowStart(context))
         val windowEnd   = System.currentTimeMillis()
+
+        if (windowStart == Long.MAX_VALUE || windowStart > windowEnd) {
+            Logger.log(context, "🔄 Periodic sync: no shift on record — nothing to collect")
+            return
+        }
 
         Logger.log(context, "🔄 Periodic sync: scanning call log since ${java.util.Date(windowStart)}")
 
@@ -174,6 +182,11 @@ object PeriodicSyncManager {
                         ?.takeIf { n -> n.isNotBlank() } ?: "UNKNOWN"
                     val typeInt  = it.getInt(it.getColumnIndexOrThrow(CallLog.Calls.TYPE))
                     val date     = it.getLong(it.getColumnIndexOrThrow(CallLog.Calls.DATE))
+
+                    // Off-shift calls are not this app's business, whichever
+                    // sweep happens to find them first.
+                    if (!ShiftManager.wasOnShift(context, date)) continue
+
                     val duration = it.getLong(it.getColumnIndexOrThrow(CallLog.Calls.DURATION))
                     val name     = it.getString(it.getColumnIndexOrThrow(CallLog.Calls.CACHED_NAME))
                         ?.takeIf { n -> n.isNotBlank() } ?: "Unknown"

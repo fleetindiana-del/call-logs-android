@@ -109,6 +109,15 @@ class PhoneStateReceiver : BroadcastReceiver() {
             return
         }
 
+        // The shift gate. Off shift the call is not recorded at all — not queued,
+        // not uploaded later. The after-the-fact sweeps
+        // (CallBackfillManager/PeriodicSyncManager) apply the same window test,
+        // so this call stays off the server permanently.
+        if (!ShiftManager.mayCollectNow(context)) {
+            Logger.log(context, "PhoneStateRcv: Shift is OFF, call not recorded.")
+            return
+        }
+
         val serverUrl = prefs.getString("serverUrl", "") ?: ""
         val apiKey = prefs.getString("apiKey", "") ?: ""
         val deviceId = prefs.getString("deviceId", "") ?: ""
